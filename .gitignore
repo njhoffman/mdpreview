@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.ansi
+*.log
+
+# Local artifacts from the initial experiments.
+/*-verification.json
+/verification.json
+/*-query-check.json
+/*-repository-before.json
+/repository-before.json
+/*-capture.json
+/*-grid.json
+/*.png
+/fzf-dimensions.jsonl
+/profile-before-language-fix.lua
+
+# Historical harnesses contain temporary and research-checkout paths.
+/verify.py
+/check-languages.py
+/fzf-check.py
+/fzf-preview-check

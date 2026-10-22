@@ -1,0 +1,319 @@
+#!/usr/bin/python3
+"""Isolated, one-shot Neovim Markdown screen-to-ANSI prototype."""
+
+import argparse
+import os
+from pathlib import Path
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+import msgpack
+
+from readonly import restrict_writes
+
+ROOT = Path(__file__).resolve().parent
+MAX_ROWS = 4096
+MAX_BYTES = 10 * 1024 * 1024
+
+
+class PreviewError(Exception):
+  pass
+
+
+class Cancelled(Exception):
+  pass
+
+
+def find_paths():
+  home = Path.home()
+  plugins = home / ".local/share/nvim/lazy"
+  editor = home / ".config/nvim/lua"
+  paths = {
+    "editor_lua": str(editor),
+    "editor_site": str(home / ".local/share/nvim/site"),
+    "theme": str(editor / "colorschemes/nord-nick/init.lua"),
+    "markdown_config": str(editor / "configs/render-markdown/init.lua"),
+    "markdown_plugin": str(plugins / "render-markdown.nvim"),
+    "runtime": [str(ROOT), *[str(plugins / name) for name in ["render-markdown.nvim", "mini.icons"]]],
+  }
+  required = [paths["theme"], paths["markdown_config"], paths["editor_site"], *paths["runtime"],
+              str(Path(paths["editor_site"]) / "parser/markdown.so"),
+              str(Path(paths["editor_site"]) / "parser/markdown_inline.so")]
+  missing = [path for path in required if not Path(path).exists()]
+  if missing:
+    raise PreviewError("Missing existing dependencies: " + ", ".join(missing))
+  return paths
+
+
+class Renderer:
+  def __init__(self, executable, paths, temporary, width, height, timeout):
+    self.process = None
+    self.errors = []
+    self.stderr = tempfile.TemporaryFile(dir=temporary)
+    self.grid = []
+    self.highlights = {0: {}}
+    self.defaults = [-1, -1, -1]
+    self.ready = []
+    self.responses = {}
+    self.serial = 0
+    self.token = 0
+    self.timeout = timeout
+    self.flushes = 0
+    self.unpacker = msgpack.Unpacker(raw=False, strict_map_key=False)
+    env = dict(os.environ)
+    for name in ["NVIM", "NVIM_LISTEN_ADDRESS", "VIMINIT", "EXINIT", "GVIMINIT", "NVIM_APPNAME"]:
+      env.pop(name, None)
+    for name, subdir in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
+                         ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")]:
+      env[name] = str(Path(temporary) / subdir)
+    env.update(TMPDIR=temporary, NVIM_LOG_FILE=str(Path(temporary) / "nvim.log"),
+               TERM="xterm-256color", COLORTERM="truecolor")
+    try:
+      self.process = subprocess.Popen(
+        [executable, "--embed", "--noplugin", "-n", "-i", "NONE", "-u", str(ROOT / "profile.lua")],
+        cwd=temporary, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=self.stderr, start_new_session=True,
+      )
+      channel = self.request("nvim_get_api_info")[0]
+      self.request("nvim_ui_attach", width, height,
+                   {"rgb": True, "ext_linegrid": True, "ext_messages": True})
+      self.request("nvim_exec_lua", "mdpreview.setup(...)", [channel, paths])
+    except BaseException:
+      self.close()
+      raise
+
+  def request(self, method, *arguments):
+    self.serial += 1
+    serial = self.serial
+    self.process.stdin.write(msgpack.packb([0, serial, method, list(arguments)], use_bin_type=True))
+    self.process.stdin.flush()
+    deadline = time.monotonic() + self.timeout
+    while serial not in self.responses:
+      self.pump(deadline)
+    error, result = self.responses.pop(serial)
+    if error:
+      raise PreviewError(f"{method}: {error}")
+    return result
+
+  def pump(self, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+      raise PreviewError("Neovim did not finish rendering before the timeout")
+    data = os.read(self.process.stdout.fileno(), 65536)
+    if not data:
+      self.stderr.seek(0)
+      diagnostic = self.stderr.read().decode(errors="replace")[-2000:]
+      raise PreviewError("Neovim exited before completing the preview. " + diagnostic)
+    self.unpacker.feed(data)
+    for message in self.unpacker:
+      if message[0] == 1:
+        self.responses[message[1]] = message[2:]
+      elif message[0] == 2:
+        name, arguments = message[1:]
+        if name == "mdpreview_ready":
+          self.ready.append(arguments[0])
+        elif name == "nvim_error_event":
+          self.errors.append(str(arguments))
+        elif name == "redraw":
+          for event in arguments:
+            for args in event[1:]:
+              self.event(event[0], args)
+
+  def event(self, name, args):
+    if name == "grid_resize" and args[0] == 1:
+      self.grid = [[[" ", 0] for _ in range(args[1])] for _ in range(args[2])]
+    elif name == "grid_clear" and args[0] == 1:
+      self.grid = [[[" ", 0] for _ in row] for row in self.grid]
+    elif name == "grid_line" and args[0] == 1:
+      _, row, column, cells, *_ = args
+      highlight = 0
+      for cell in cells:
+        text = cell[0]
+        if len(cell) > 1:
+          highlight = cell[1]
+        for _ in range(cell[2] if len(cell) > 2 else 1):
+          self.grid[row][column] = [text, highlight]
+          column += 1
+    elif name == "grid_scroll" and args[0] == 1:
+      _, top, bottom, left, right, rows, columns = args
+      previous = [[cell[:] for cell in row] for row in self.grid]
+      for row in range(top, bottom):
+        for column in range(left, right):
+          source_row, source_column = row + rows, column + columns
+          self.grid[row][column] = (
+            previous[source_row][source_column]
+            if top <= source_row < bottom and left <= source_column < right else [" ", 0]
+          )
+    elif name == "hl_attr_define":
+      self.highlights[args[0]] = args[1]
+    elif name == "default_colors_set":
+      self.defaults = args[:3]
+    elif name == "flush":
+      self.flushes += 1
+    elif name == "msg_show" and args[0] in {"emsg", "echoerr", "lua_error"}:
+      self.errors.append("".join(part[1] for part in args[1]))
+
+  def wait_ready(self, token, width, height):
+    deadline = time.monotonic() + self.timeout
+    while not any(item["token"] == token and item["width"] == width and item["height"] == height
+                  for item in self.ready):
+      self.pump(deadline)
+    self.request("nvim_command", "redraw!")
+    info = self.request("nvim_exec_lua", "return mdpreview.info()", [])
+    # Plugins may leave v:errmsg set after a caught API error. Unhandled RPC/UI errors are authoritative.
+    if self.errors:
+      raise PreviewError("; ".join(self.errors))
+    return info
+
+  def render(self, path, width, height, start_line=1, all_rows=False):
+    self.token += 1
+    self.request("nvim_exec_lua", "return mdpreview.open(...)", [str(path), start_line, self.token])
+    info = self.wait_ready(self.token, width, height)
+    if all_rows:
+      for _ in range(8):
+        if info["total_height"] <= height and info["bottom_line"] == info["buffer_lines"]:
+          break
+        if info["total_height"] > MAX_ROWS or height == MAX_ROWS:
+          raise PreviewError(f"Full output exceeds {MAX_ROWS} screen rows; use --lines for a viewport")
+        height = min(MAX_ROWS, max(height * 2, info["total_height"] + 4))
+        self.token += 1
+        self.request("nvim_exec_lua", "mdpreview.token = ...", [self.token])
+        self.request("nvim_ui_try_resize", width, height)
+        self.request("nvim_exec_lua", "mdpreview.resized(...)", [self.token])
+        info = self.wait_ready(self.token, width, height)
+      else:
+        raise PreviewError("Document layout did not settle after resizing")
+    count = min(height, info["remaining_height"])
+    return self.ansi(count), info
+
+  def ansi(self, rows):
+    output = []
+    sequences = {}
+    for row in self.grid[:rows]:
+      end = len(row)
+      while end:
+        text, highlight = row[end - 1]
+        attrs = self.highlights.get(highlight, {})
+        if text != " " or any(attrs.get(key) for key in
+                               ["reverse", "underline", "undercurl", "strikethrough"]) or "background" in attrs:
+          break
+        end -= 1
+      current = None
+      for text, highlight in row[:end]:
+        if not text:
+          continue  # Continuation cell of a wide glyph; the glyph itself occupies both columns.
+        if highlight != current:
+          if highlight not in sequences:
+            attrs = self.highlights.get(highlight, {})
+            codes = ["0"]
+            codes += [str(value) for name, value in [("bold", 1), ("italic", 3), ("reverse", 7),
+                                                   ("strikethrough", 9)] if attrs.get(name)]
+            if any(attrs.get(key) for key in ["underline", "undercurl", "underdouble", "underdotted", "underdashed"]):
+              codes.append("4")
+            foreground = attrs.get("foreground", self.defaults[0])
+            if foreground >= 0:
+              codes.append(f"38;2;{foreground >> 16 & 255};{foreground >> 8 & 255};{foreground & 255}")
+            else:
+              codes.append("39")
+            background = attrs.get("background")
+            if background is None or background < 0:
+              codes.append("49")
+            else:
+              codes.append(f"48;2;{background >> 16 & 255};{background >> 8 & 255};{background & 255}")
+            sequences[highlight] = "\x1b[" + ";".join(codes) + "m"
+          output.append(sequences[highlight])
+          current = highlight
+        output.append(text)
+      output.append("\x1b[0m\n")
+    return "".join(output).encode("utf-8")
+
+  def close(self):
+    if self.process and self.process.poll() is None:
+      try:
+        self.process.stdin.write(msgpack.packb([2, "nvim_command", ["qa!"]], use_bin_type=True))
+        self.process.stdin.flush()
+        self.process.wait(timeout=1)
+      except (OSError, subprocess.TimeoutExpired):
+        try:
+          os.killpg(self.process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+          pass
+        self.process.wait()
+    if self.process:
+      self.process.stdin.close()
+      self.process.stdout.close()
+    self.stderr.close()
+
+
+def positive(value):
+  number = int(value)
+  if number < 1:
+    raise argparse.ArgumentTypeError("Expected a positive integer")
+  return number
+
+
+def main():
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("file", type=Path, help="Markdown file, or - for stdin")
+  parser.add_argument("--columns", type=positive, help="Output width; defaults to fzf or terminal width")
+  mode = parser.add_mutually_exclusive_group()
+  mode.add_argument("--lines", type=positive, help="Emit one viewport with this many rows")
+  mode.add_argument("--all", action="store_true", help="Emit the complete document, up to 4096 screen rows")
+  parser.add_argument("--start-line", type=positive, default=1, help="First source line for a viewport")
+  parser.add_argument("--nvim", default=shutil.which("nvim"), help="Neovim executable; defaults to PATH")
+  parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
+  args = parser.parse_args()
+  if not args.nvim:
+    raise PreviewError("Neovim is not on PATH")
+  width = args.columns or int(os.environ.get("FZF_PREVIEW_COLUMNS", "0")) or shutil.get_terminal_size().columns
+  fzf_lines = int(os.environ.get("FZF_PREVIEW_LINES", "0"))
+  all_rows = args.all or (args.lines is None and not fzf_lines and args.start_line == 1)
+  height = args.lines or fzf_lines or shutil.get_terminal_size().lines
+  if not 10 <= width <= 500 or not 1 <= height <= MAX_ROWS:
+    raise PreviewError("Supported dimensions: 10–500 columns, 1–4096 lines")
+  if args.all and args.start_line != 1:
+    raise PreviewError("--all cannot be combined with --start-line")
+  paths = find_paths()
+  with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
+    if str(args.file) == "-":
+      data = sys.stdin.buffer.read(MAX_BYTES + 1)
+      path = Path(temporary) / "stdin.md"
+      path.write_bytes(data)
+    else:
+      path = args.file.expanduser().resolve(strict=True)
+      if not path.is_file():
+        raise PreviewError("Input must be a regular file")
+    if path.stat().st_size > MAX_BYTES:
+      raise PreviewError("Prototype input limit is 10 MiB")
+    restrict_writes()
+    renderer = Renderer(args.nvim, paths, temporary, width, height, args.timeout)
+    try:
+      output, _ = renderer.render(path, width, height, args.start_line, all_rows)
+    finally:
+      renderer.close()
+    sys.stdout.buffer.write(output)
+    sys.stdout.buffer.flush()
+  return 0
+
+
+def cancel(*_):
+  raise Cancelled()
+
+
+if __name__ == "__main__":
+  signal.signal(signal.SIGTERM, cancel)
+  try:
+    raise SystemExit(main())
+  except BrokenPipeError:
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    raise SystemExit(0)
+  except (KeyboardInterrupt, Cancelled):
+    raise SystemExit(130)
+  except (PreviewError, OSError, ValueError) as error:
+    print(f"mdpreview: {error}", file=sys.stderr)
+    raise SystemExit(1)
