@@ -56,6 +56,9 @@ ANSWERS = {b"\x1b]11;?": b"\x1b]11;rgb:0000/0000/0000\x1b\\", b"\x1b[c": b"\x1b[
 
 def plain(data):
   text = re.sub(rb"\x1b\][^\x07\x1b]*(\x07|\x1b\\)", b"", bytes(data))
+  # Colors (SGR) and charset selection (xterm's sgr0 is "\x1b(B\x1b[m") sit between characters of one word;
+  # drop them. Other CSI sequences move the cursor, so they become a space.
+  text = re.sub(rb"\x1b[()*+][0-9A-Za-z]|\x1b\[[0-9;:]*m", b"", text)
   text = re.sub(rb"\x1b\[[0-9;?<>=! ]*[a-zA-Z@`~]", b" ", text)
   return re.sub(rb"\x1b.", b"", text).decode(errors="replace")
 
@@ -124,8 +127,8 @@ def finish(expected):
 
 
 if scenario == "regex":
-  # --syntax regex: Vim's Markdown syntax keeps the raw heading marker. It also marks "_" as an error, which
-  # splits PAGER_TOP across escape sequences, so wait for a list item instead.
+  # --syntax regex: Vim's Markdown syntax keeps the raw heading marker. Wait for a list item, which is drawn
+  # after the heading.
   until("item 5", 0, "the first screen")
   quiet()
   if "# PAGER" not in plain(captured):

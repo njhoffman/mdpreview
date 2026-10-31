@@ -10,6 +10,7 @@ import contextlib
 import json
 import os
 from pathlib import Path
+import re
 import select
 import shlex
 import shutil
@@ -18,7 +19,10 @@ import subprocess
 import sys
 import tempfile
 
-import msgpack
+try:
+  import msgpack
+except ImportError:
+  sys.exit("mdpreview: the Python package msgpack is missing; install python3-msgpack or run 'make deps'")
 import resource
 
 import config
@@ -26,8 +30,11 @@ import filetypes
 from readonly import landlock_abi, restrict_writes
 
 ROOT = Path(__file__).resolve().parent
-MAX_ROWS = 4096
+# Neovim clamps 'lines', and so the UI grid, to 1000 rows; a taller nvim_ui_try_resize never produces the
+# requested grid. Renderer.grid_rows() checks the height Neovim actually applied.
+MAX_ROWS = 1000
 MAX_BYTES = 10 * 1024 * 1024
+VERSION_FILE = ROOT / "VERSION"
 
 
 class PreviewError(Exception):
@@ -35,11 +42,29 @@ class PreviewError(Exception):
 
 
 class TooLarge(PreviewError):
-  """Complete output exceeded the time budget or the row limit; a fallback renderer can take over."""
+  """A limit was reached (input size, rows, --budget, --timeout); a fallback renderer can take over."""
+
+
+class TimedOut(TooLarge):
+  pass
 
 
 class Cancelled(Exception):
   pass
+
+
+def concise(error):
+  """One readable message from a Neovim error: no stack trace, and only the innermost error of a chain such as
+  "BufReadPost Autocommands for ...: Vim(append):Lua callback: ...: E5113: ...". mdpreview's own assertions in
+  profile.lua lose their location; errors elsewhere keep it."""
+  if isinstance(error, (list, tuple)) and len(error) == 2 and isinstance(error[1], str):
+    error = error[1]  # RPC errors are [type, message].
+  text = str(error).split("stack traceback:")[0].strip()
+  located = list(re.finditer(r"(?:\.\.\.|/)?[\w./-]*\.lua:\d+: ", text))
+  if located:
+    last = located[-1]
+    text = text[last.end():] if "profile.lua:" in last.group() else text[last.start():]
+  return text.strip()
 
 
 class Timings:
@@ -123,8 +148,10 @@ def find_paths(settings=None):
   return dict(config.runtime_paths(settings), root=str(ROOT))
 
 
-def check():
-  """Print the resolved configuration, versions, and problems; return 1 if a required piece is missing."""
+def check(installed=False):
+  """Print the resolved configuration, versions, and problems; return 1 if a required piece is missing.
+
+  installed: compile the queries of every installed parser, not only the filetype table's languages."""
   try:
     settings, sources = config.load()
   except config.ConfigError as error:
@@ -136,32 +163,70 @@ def check():
     value = settings[key]
     shown = ", ".join(map(str, value)) if isinstance(value, list) else value
     print(f"  {key:16} {shown if shown not in (None, '') else '-'}  [{sources[key]}]")
-  def version(command):
+  def tool_version(command):
     try:
       result = subprocess.run(command, capture_output=True, text=True, timeout=10)
       return (result.stdout or result.stderr).splitlines()[0].strip()
     except (OSError, IndexError, subprocess.TimeoutExpired):
       return "not found"
   def git_version(path):
-    return version(["git", "-C", str(path), "describe", "--tags", "--always"]) if path else "not found"
+    return tool_version(["git", "-C", str(path), "describe", "--tags", "--always"]) if path else "not found"
   print("versions:")
+  print(f"  mdpreview        {version()}")
   print(f"  python           {sys.version.split()[0]}, msgpack {'.'.join(map(str, msgpack.version))}")
-  print(f"  neovim           {version([settings['nvim'], '--version']) if settings['nvim'] else 'not found'}")
+  print(f"  neovim           {tool_version([settings['nvim'], '--version']) if settings['nvim'] else 'not found'}")
   print(f"  render-markdown  {git_version(settings['render_markdown'])}")
   print(f"  mini.icons       {git_version(settings['icons'])}")
-  print(f"  bat              {version(['bat', '--version'])}")
-  print(f"  less             {version(['less', '--version'])}")
+  print(f"  bat              {tool_version(['bat', '--version'])}")
+  print(f"  less             {tool_version(['less', '--version'])}")
   try:
     print(f"  landlock         ABI {landlock_abi()}")
   except OSError as error:
     print(f"  landlock         unavailable: {error}")
   errors, warnings = config.problems(settings)
+  print("tree-sitter queries:")
+  if errors:
+    print("  not checked: required dependencies are missing")
+  else:
+    try:
+      report = check_queries(settings, installed)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+      print(f"  not checked: {error}")
+    else:
+      scope = "installed parsers" if installed else "filetypes.json languages (--check --all: every parser)"
+      print(f"  compiled         {len(report['ok'])} languages; checked {scope}")
+      for key, label in [("no_parser", "no parser"), ("no_highlights", "no highlights query")]:
+        if report[key]:
+          print(f"  regex syntax     {', '.join(report[key])} ({label})")
+      warnings += report["warnings"]
   for warning in warnings:
     print(f"warning: {warning}")
   for error in errors:
     print(f"error: {error}")
   print("ok" if not errors else "missing required dependencies")
   return 1 if errors else 0
+
+
+def check_queries(settings, installed=False):
+  """Compile each table language's highlights and injections queries in a headless Neovim; see profile.lua."""
+  langs = ["markdown", "markdown_inline"]
+  for entry in filetypes.load():
+    lang = entry.get("lang", entry["filetype"])
+    if lang not in langs:
+      langs.append(lang)
+  paths = dict(config.runtime_paths(settings), root=str(ROOT))
+  with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
+    env = isolated_environment(temporary)
+    env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "langs": langs, "installed": installed})
+    command = nvim_command(settings["nvim"], "--headless", "-c",
+                           "lua local s = vim.json.decode(vim.env.MDPREVIEW_SESSION); mdpreview.setup(nil, s.paths); "
+                           "mdpreview.check_queries(s.langs, s.installed)", "-c", "qa!")
+    result = subprocess.run(command, cwd=temporary, env=env, capture_output=True, text=True,
+                            timeout=300 if installed else 60)
+  try:
+    return json.loads(result.stdout)
+  except ValueError:
+    raise ValueError(concise(result.stderr.strip() or f"Neovim exited with status {result.returncode}")) from None
 
 
 def isolated_environment(temporary):
@@ -212,11 +277,19 @@ class Renderer:
       channel = self.request("nvim_get_api_info")[0]
       self.request("nvim_ui_attach", width, height,
                    {"rgb": True, "ext_linegrid": True, "ext_messages": True})
+      self.grid_rows(height)
       self.request("nvim_exec_lua", "mdpreview.setup(...)", [channel, paths])
       self.timings.since("startup", self.spawned)
     except BaseException:
       self.close()
       raise
+
+  def grid_rows(self, height):
+    """Fail fast when Neovim applied fewer rows than requested; waiting for that frame would never end."""
+    rows = self.request("nvim_get_option_value", "lines", {})
+    if rows < height:
+      raise TooLarge(f"complete output needs {height} screen rows, over the {rows} Neovim allows "
+                     "(--lines renders a viewport)")
 
   def request(self, method, *arguments):
     self.serial += 1
@@ -228,7 +301,7 @@ class Renderer:
       self.pump(deadline)
     error, result = self.responses.pop(serial)
     if error:
-      raise PreviewError(f"{method}: {error}")
+      raise PreviewError(concise(error))
     return result
 
   def pump(self, deadline):
@@ -237,8 +310,8 @@ class Renderer:
     if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
       detail = ("; Neovim reported: " + "; ".join(self.errors)) if self.errors else ""
       if budgeted:
-        raise TooLarge("complete output took longer than the budget" + detail)
-      raise PreviewError("Neovim did not finish rendering before the timeout" + detail)
+        raise TooLarge("complete output took longer than the budget (--budget)" + detail)
+      raise TimedOut(f"Neovim did not answer within the {self.timeout} s timeout (--timeout)" + detail)
     received = time.monotonic_ns()
     data = os.read(self.process.stdout.fileno(), 65536)
     self.timings.facts["redraw_bytes"] = self.timings.facts.get("redraw_bytes", 0) + len(data)
@@ -255,7 +328,7 @@ class Renderer:
         if name == "mdpreview_ready":
           self.ready.append(arguments[0])
         elif name == "nvim_error_event":
-          self.errors.append(str(arguments))
+          self.errors.append(concise(arguments))
         elif name == "redraw":
           for event in arguments:
             for args in event[1:]:
@@ -294,7 +367,7 @@ class Renderer:
     elif name == "flush":
       self.flushes += 1
     elif name == "msg_show" and args[0] in {"emsg", "echoerr", "lua_error"}:
-      self.errors.append("".join(part[1] for part in args[1]))
+      self.errors.append(concise("".join(part[1] for part in args[1])))
 
   def wait_ready(self, token, width, height):
     deadline = time.monotonic() + self.timeout
@@ -324,12 +397,13 @@ class Renderer:
         if info["total_height"] <= height and info["bottom_line"] == info["buffer_lines"]:
           break
         if info["total_height"] > MAX_ROWS or height == MAX_ROWS:
-          raise TooLarge(f"Full output exceeds {MAX_ROWS} screen rows; use --lines for a viewport")
+          raise TooLarge(f"complete output exceeds {MAX_ROWS} screen rows (--lines renders a viewport)")
         height = min(MAX_ROWS, max(height * 2, info["total_height"] + 4))
         resizes += 1
         self.token += 1
         self.request("nvim_exec_lua", "mdpreview.token = ...", [self.token])
         self.request("nvim_ui_try_resize", width, height)
+        self.grid_rows(height)
         self.request("nvim_exec_lua", "mdpreview.resized(...)", [self.token])
         info = self.wait_ready(self.token, width, height)
       else:
@@ -337,6 +411,8 @@ class Renderer:
     if resizes:
       self.timings.since("frames: resizes", resized)
     self.record(info, width, height, resizes)
+    for warning in info.get("warnings") or []:
+      print(f"mdpreview: warning: {warning}", file=sys.stderr)
     count = min(height, info["remaining_height"])
     with self.timings.phase("ansi encode"):
       output = self.ansi(count)
@@ -426,25 +502,53 @@ class Renderer:
     self.stderr.close()
 
 
+def input_path(argument):
+  """The regular file argument names, symbolic links resolved, or PreviewError saying why it cannot be read."""
+  path = argument.expanduser()
+  try:
+    resolved = path.resolve(strict=True)
+    if not resolved.is_file():
+      raise PreviewError(f"{argument}: not a regular file")
+    with open(resolved, "rb"):
+      pass
+  except FileNotFoundError:
+    if path.is_symlink():
+      raise PreviewError(f"{argument}: broken symbolic link to {os.readlink(path)}") from None
+    raise PreviewError(f"{argument}: no such file") from None
+  except RuntimeError:  # Symbolic link loops before Python 3.13, which raises OSError (ELOOP) instead.
+    raise PreviewError(f"{argument}: symbolic link loop") from None
+  except OSError as error:
+    raise PreviewError(f"{argument}: {(error.strerror or str(error)).lower()}") from None
+  return resolved
+
+
 def resolve_filetype(name, path):
-  """Return {"filetype", "lang"} for Neovim, or None to let Neovim detect the filetype."""
+  """Return {"filetype", "lang"} for Neovim, or None to let Neovim detect the filetype.
+
+  A symbolic link is matched by its own name first, then by its target's."""
   if name:
     entry = filetypes.find(name) or {"filetype": name}
   elif path is None:
     entry = {"filetype": "markdown"}
   else:
     entry = filetypes.detect(path)
+    if entry is None and Path(path).is_symlink():
+      entry = filetypes.detect(Path(path).resolve())
     if entry is None:
       return None
   return {"filetype": entry["filetype"], "lang": entry.get("lang", entry["filetype"])}
 
 
-def fallback_bat(path, width, filetype):
+def fallback_bat(path, width, filetype, start_line=1, height=None):
+  """bat's rendering of path; with height, only the viewport of that many rows from start_line."""
   command = ["bat", "--color=always", "--paging=never", "--style=plain", f"--terminal-width={width}"]
   if filetype == "markdown":
     command.append("--language=markdown")
+  if height:
+    command.append(f"--line-range={start_line}:{start_line + height - 1}")
   command += ["--", str(path)]
-  return subprocess.run(command, stdout=subprocess.PIPE, check=True).stdout
+  output = subprocess.run(command, stdout=subprocess.PIPE, check=True).stdout
+  return b"".join(output.splitlines(keepends=True)[:height]) if height else output
 
 
 def wants_pager(mode, complete):
@@ -520,11 +624,28 @@ def page_nvim(executable, paths, temporary, path, filetype, syntax):
       keyboard.close()
 
 
+def version():
+  try:
+    return VERSION_FILE.read_text(encoding="utf-8").strip()
+  except OSError:
+    return "unknown"
+
+
 def positive(value):
   number = int(value)
   if number < 1:
     raise argparse.ArgumentTypeError("Expected a positive integer")
   return number
+
+
+def environment_number(parser, name):
+  """A whole number from the environment variable name, 0 when unset or empty; a usage error otherwise."""
+  value = os.environ.get(name, "").strip()
+  if not value:
+    return 0
+  if not value.isdecimal():
+    parser.error(f"{name} must be a whole number, got {value!r}")
+  return int(value)
 
 
 def main():
@@ -533,27 +654,35 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   if sys.argv[1:] == ["--check"]:
     return check()
+  if sorted(sys.argv[1:]) == ["--all", "--check"]:
+    return check(installed=True)
+  parser.add_argument("-v", "--version", action="version", version=f"mdpreview {version()}")
   parser.add_argument("file", type=Path, help="File to render, or - for stdin")
   parser.add_argument("--filetype", help="Neovim filetype; defaults to the filetypes.json match, then Neovim "
                       "detection, then markdown (stdin: markdown)")
   parser.add_argument("--columns", type=positive, help="Output width; defaults to fzf or terminal width")
   mode = parser.add_mutually_exclusive_group()
   mode.add_argument("--lines", type=positive, help="Emit one viewport with this many rows")
-  mode.add_argument("--all", action="store_true", help="Emit the complete document, up to 4096 screen rows")
+  mode.add_argument("--all", action="store_true", help=f"Emit the complete document, up to {MAX_ROWS} screen rows")
   parser.add_argument("--start-line", type=positive, default=1, help="First source line for a viewport")
   parser.add_argument("--paging", choices=["auto", "always", "never"], default="auto",
                       help="Page the complete document. auto pages when stdout is a terminal outside fzf and "
                       "Neovim and the output is taller than the screen")
+  parser.add_argument("-c", "--cat", dest="paging", action="store_const", const="never",
+                      help="Print without paging; the same as --paging=never (the last of the two wins)")
   parser.add_argument("--pager", help="nvim (built-in Neovim pager), less (less -R), or a pager command line; "
                       "defaults to the configured pager (MDPREVIEW_PAGER), then nvim")
   parser.add_argument("--budget", type=float, default=5.0,
                       help="Seconds allowed for complete output before falling back (default: 5; 0 disables)")
   parser.add_argument("--fallback", choices=["bat", "none"], default="bat",
-                      help="Renderer used when complete output exceeds --budget or the row limit (default: bat)")
+                      help="Renderer used when the input size, row, --budget or --timeout limit is reached "
+                      "(default: bat)")
   parser.add_argument("--nvim", help="Neovim executable; defaults to the configured nvim, then PATH")
   parser.add_argument("--check", action="store_true",
-                      help="Print the resolved configuration and dependency versions, then exit")
-  parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
+                      help="Print the resolved configuration and dependency versions, compile the Tree-sitter "
+                      "queries of the filetype table's languages (with --all: of every installed parser), then exit")
+  parser.add_argument("--timeout", type=positive, default=8,
+                      help="Seconds Neovim may take per render step before the fallback (default: 8)")
   parser.add_argument("--syntax", choices=["auto", "regex"], default="auto",
                       help="auto: Tree-sitter when the language has a highlights query, else Vim's regex syntax; "
                       "regex: always Vim's regex syntax (Markdown then skips render-markdown)")
@@ -563,6 +692,8 @@ def main():
   report.add_argument("--timings-json", dest="timings", action="store_const", const="json",
                       help="Like --timings, as one JSON object")
   args = parser.parse_args()
+  args.fzf_columns = environment_number(parser, "FZF_PREVIEW_COLUMNS")
+  args.fzf_lines = environment_number(parser, "FZF_PREVIEW_LINES")
   try:
     return run(args, timings)
   finally:
@@ -588,12 +719,12 @@ def run(args, timings):
   if args.nvim:
     settings["nvim"] = args.nvim
   pager = resolve_pager(args.pager or settings["pager"])
-  width = args.columns or int(os.environ.get("FZF_PREVIEW_COLUMNS", "0")) or shutil.get_terminal_size().columns
-  fzf_lines = int(os.environ.get("FZF_PREVIEW_LINES", "0"))
+  width = args.columns or args.fzf_columns or shutil.get_terminal_size().columns
+  fzf_lines = args.fzf_lines
   all_rows = args.all or (args.lines is None and not fzf_lines and args.start_line == 1)
   height = args.lines or fzf_lines or shutil.get_terminal_size().lines
   if not 10 <= width <= 500 or not 1 <= height <= MAX_ROWS:
-    raise PreviewError("Supported dimensions: 10–500 columns, 1–4096 lines")
+    raise PreviewError(f"Supported dimensions: 10–500 columns, 1–{MAX_ROWS} lines")
   if args.all and args.start_line != 1:
     raise PreviewError("--all cannot be combined with --start-line")
   if args.paging == "always":
@@ -604,27 +735,38 @@ def run(args, timings):
   start = timings.since("config", start)
   with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
     if str(args.file) == "-":
-      data = sys.stdin.buffer.read(MAX_BYTES + 1)
       path = Path(temporary) / "stdin.md"
-      path.write_bytes(data)
+      with open(path, "wb") as handle:
+        handle.write(sys.stdin.buffer.read(MAX_BYTES + 1))
+        if handle.tell() > MAX_BYTES:  # Keep the rest for the fallback renderer.
+          shutil.copyfileobj(sys.stdin.buffer, handle)
     else:
-      path = args.file.expanduser().resolve(strict=True)
-      if not path.is_file():
-        raise PreviewError("Input must be a regular file")
-    if path.stat().st_size > MAX_BYTES:
-      raise PreviewError("Prototype input limit is 10 MiB")
+      path = input_path(args.file)
     filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
     timings.since("input and filetype", start)
+    viewport = None if all_rows else height
+    size = path.stat().st_size
+    if size > MAX_BYTES:
+      error = TooLarge(f"input is {size / 1048576:.1f} MiB, over the {MAX_BYTES // 1048576} MiB limit")
+      output = fall_back(error, args, path, width, filetype, viewport, timings)
+      return emit(output, args, all_rows, pager, timings, fallback=True)
     if pager == "nvim" and wants_pager(args.paging, all_rows) and sys.stdout.isatty():
       restrict_writes()
       if args.paging == "auto":
         # Probe with one screen: a document that fits is printed as is, a taller one opens the pager.
         lines = shutil.get_terminal_size().lines
-        renderer = Renderer(settings["nvim"], paths, temporary, width, lines, args.timeout, timings, args.syntax)
+        renderer = None
         try:
+          renderer = Renderer(settings["nvim"], paths, temporary, width, lines, args.timeout, timings, args.syntax)
           output, info = renderer.render(path, width, lines, 1, False, filetype)
+        except TimedOut as error:
+          if renderer:
+            renderer.close()
+          output = fall_back(error, args, path, width, filetype, None, timings)
+          return emit(output, args, all_rows, pager, timings, fallback=True)
         finally:
-          renderer.close()
+          if renderer:
+            renderer.close()
         if info["total_height"] <= lines:
           sys.stdout.buffer.write(output)
           sys.stdout.buffer.flush()
@@ -638,21 +780,44 @@ def run(args, timings):
         source_rows = sum(chunk.count(b"\n") for chunk in iter(lambda: handle.read(1 << 16), b"")) + 1
       height = max(height, min(MAX_ROWS, source_rows + 4))
     restrict_writes()
-    renderer = Renderer(settings["nvim"], paths, temporary, width, height, args.timeout, timings, args.syntax)
+    renderer = None
+    fallback = False
     try:
+      renderer = Renderer(settings["nvim"], paths, temporary, width, height, args.timeout, timings, args.syntax)
       output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype, args.budget)
     except TooLarge as error:
-      if args.fallback == "none" or not shutil.which("bat"):
-        raise
-      renderer.close()
-      print(f"mdpreview: {error}; showing bat output instead (see --budget, --fallback)", file=sys.stderr)
-      with timings.phase("bat fallback"):
-        output = fallback_bat(path, width, (filetype or {}).get("filetype"))
-      timings.facts["engine"] = "bat fallback"
+      if renderer:
+        renderer.close()
+      output = fall_back(error, args, path, width, filetype, viewport, timings, args.start_line)
+      fallback = True
     finally:
-      renderer.close()
+      if renderer:
+        renderer.close()
+  return emit(output, args, all_rows, pager, timings, fallback)
+
+
+def fall_back(error, args, path, width, filetype, viewport, timings, start_line=1):
+  """bat's output in place of a render that hit a limit, with a notice; re-raise when there is no fallback."""
+  if args.fallback == "none":
+    raise error
+  if not shutil.which("bat"):
+    raise PreviewError(f"{error}; bat, the fallback renderer, is not installed")
+  print(f"mdpreview: {error}; showing bat output instead (--fallback=none to fail)", file=sys.stderr)
+  with timings.phase("bat fallback"):
+    try:
+      output = fallback_bat(path, width, (filetype or {}).get("filetype"), start_line, viewport)
+    except subprocess.CalledProcessError as failure:
+      raise PreviewError(f"{error}; the bat fallback failed with exit status {failure.returncode}") from None
+  timings.facts["engine"] = "bat fallback"
+  return output
+
+
+def emit(output, args, all_rows, pager, timings, fallback=False):
   if should_page(args.paging, all_rows, output):
-    if pager == "nvim":  # --paging=always without a terminal: nothing to show a pager on, so print.
+    if pager == "nvim":
+      if fallback and sys.stdout.isatty():  # bat's output is ANSI text, which the Neovim pager cannot show.
+        return page(output, resolve_pager("less"))
+      # --paging=always without a terminal: nothing to show a pager on, so print.
       sys.stdout.buffer.write(output)
       sys.stdout.buffer.flush()
       return 0

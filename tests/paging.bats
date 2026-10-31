@@ -62,6 +62,24 @@ in_pty() {
   [[ $output == *'line 60'* ]]
 }
 
+@test "-c and --cat print on a terminal like --paging=never" {
+  for flag in -c --cat; do
+    in_pty "'$MDPREVIEW' $flag '$LONG'"
+    [ "$status" -eq 0 ]
+    [ ! -e "$PAGED" ]
+    [[ $output == *'line 60'* ]]
+  done
+}
+
+@test "the last of --cat and --paging wins" {
+  in_pty "'$MDPREVIEW' --cat --paging=always '$LONG'"
+  [ -f "$PAGED" ]
+  rm "$PAGED"
+  in_pty "'$MDPREVIEW' --paging=always --cat '$LONG'"
+  [ ! -e "$PAGED" ]
+  [[ $output == *'line 60'* ]]
+}
+
 @test "always pages the same bytes that never prints" {
   "$MDPREVIEW" --columns 80 --paging=always "$LONG"
   "$MDPREVIEW" --columns 80 --paging=never "$LONG" > "$BATS_TEST_TMPDIR/printed"

@@ -5,7 +5,8 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.6.0`), with a matching annotated Git tag (`v0.6.0`).
+The current version is in [VERSION](VERSION) and printed by `mdpreview --version` (`-v`); each release has a matching
+annotated Git tag (`vX.Y.Z`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -52,11 +53,18 @@ or `colorscheme`, and `markdown_options` (your editor's render-markdown config f
 options) at an editor setup to match its appearance.
 
 ```sh
-mdpreview --check   # resolved settings and their sources, versions, warnings; exit 1 if something required is missing
+mdpreview --check        # resolved settings and their sources, versions, warnings; exit 1 if something required is missing
+mdpreview --check --all  # also compile the queries of every installed parser (code fences can use any; slow)
 ```
 
 Missing optional pieces are skipped with a warning in `--check`; a missing Neovim or render-markdown is an
-error.
+error. `--check` also compiles the Tree-sitter highlights and injections queries of each `filetypes.json`
+language and lists those shown with regex syntax.
+
+A query written for a different version of its parser ("Invalid node type") does not stop a render: that
+language loses Tree-sitter highlighting (a whole file of it uses Vim's regex syntax instead) and one warning on
+stderr names the query file. Update the parser and its queries together, usually by pointing `parser_dir` at
+the directory that has both.
 
 ## Usage
 
@@ -74,6 +82,10 @@ cat README.md | ./mdpreview -
 ./mdpreview --timings README.md         # per-phase timings and peak memory on stderr
 ```
 
+Without `--filetype`, the file's name is matched against [filetypes.json](filetypes.json) (case-insensitively,
+so `README.MD` is Markdown), then Neovim's own detection is used, then Markdown. A symbolic link is matched by
+its own name first and by its target's name when its own matches nothing. stdin is Markdown.
+
 ### Output modes
 
 mdpreview emits either the **complete document** or one **viewport**:
@@ -81,8 +93,8 @@ mdpreview emits either the **complete document** or one **viewport**:
 | | Complete document | Viewport |
 |---|---|---|
 | Chosen by | `--all`; also the default when none of `--lines`, `--start-line` or `$FZF_PREVIEW_LINES` is given | `--lines N`, `--start-line N`, or `$FZF_PREVIEW_LINES` (fzf previews without `--all`) |
-| Rows emitted | every screen row of the rendered document, up to 4,096 | at most the viewport height (`--lines`, else `$FZF_PREVIEW_LINES`, else the terminal height) |
-| Time limit | `--budget` (default 5 s), then the bat fallback | `--timeout` per render step only |
+| Rows emitted | every screen row of the rendered document, up to 1,000 | at most the viewport height (`--lines`, else `$FZF_PREVIEW_LINES`, else the terminal height) |
+| Time limit | `--budget` (default 5 s) overall and `--timeout` (default 8 s) per render step, then the bat fallback | `--timeout` per render step, then the bat fallback |
 | Paging | `--paging=auto` pages it when it is taller than the terminal (see [Paging](#paging)) | never paged; `--paging=always` with `--lines` or `--start-line` is an error |
 
 Both modes load and parse the whole file, but a viewport draws only one screen, so it is faster on longer
@@ -100,8 +112,9 @@ Scrolling works differently in each mode:
   take more or fewer screen rows than source lines, so stepping `--start-line` by the viewport height does not
   move by exactly one screen.
 - **Jumping to a line in fzf** (for example a grep match): with a viewport, pass the line number as
-  `--start-line {2}` so the match is the first row. With the complete document, fzf's `--preview-window
-  '+{2}'` offset counts screen rows, so it drifts from the source line wherever rows wrap or are added.
+  `--start-line {2}` so the match is the first row (see [fzf](#fzf) for splitting a match safely). With the
+  complete document, fzf's `--preview-window '+{2}'` offset counts screen rows, so it drifts from the source
+  line wherever rows wrap or are added.
 
 ### Paging
 
@@ -109,13 +122,14 @@ Scrolling works differently in each mode:
 taller than the screen, and prints it otherwise. It always prints when stdout is piped, for a viewport
 (`--lines`, `--start-line`), inside fzf previews (`FZF_PREVIEW_COLUMNS`/`FZF_PREVIEW_LINES` set), and inside
 Neovim terminal buffers (`$NVIM` set), which covers Telescope's previewer even though it provides a terminal.
-`--paging=always` pages even short documents; `--paging=never` always prints.
+`--paging=always` pages even short documents; `--paging=never` (or `-c`/`--cat`) always prints. When
+both `--cat` and `--paging` are given, the last one wins.
 
 The pager is chosen by `--pager`, else the `pager` config key (`MDPREVIEW_PAGER`), else `nvim`:
 
 - **`nvim`** (default): the document opens in a read-only Neovim on your terminal, with the same profile,
   theme, and render-markdown options as the printed output. render-markdown stays live, Neovim search,
-  motions, and visual yank work, and resizing the terminal re-wraps the text. There is no 4,096-row limit
+  motions, and visual yank work, and resizing the terminal re-wraps the text. There is no 1,000-row limit
   and no `--budget`, since Neovim only draws what is on screen. The raw Markdown of the cursor line is
   never revealed. Keys added on top of Neovim's: `q` quits, `space`/`f` and `b` page down/up, `d`/`u`
   scroll half a page. `--columns` does not apply: the pager uses the terminal's width. In auto mode,
@@ -129,15 +143,40 @@ The pager is chosen by `--pager`, else the `pager` config key (`MDPREVIEW_PAGER`
 
 Ctrl-C is left to the pager.
 
-### Budget and fallback
+### Limits and fallback
 
-Complete output (the default in a terminal, and `--all`) must finish within `--budget` seconds (default 5;
-`0` disables it). Documents that take longer, or exceed 4,096 screen rows, are shown with bat instead
-(`--language=markdown` for Markdown, bat's own detection otherwise) with a one-line notice on stderr; the
-result is paged like a normal render. `--fallback=none` reports the error instead. Very large Markdown tables
+When a render reaches one of these limits, the file is shown with bat instead (`--language=markdown` for
+Markdown, bat's own detection otherwise), with a one-line notice on stderr naming the limit:
+
+| Limit | Applies to | Change it with |
+|---|---|---|
+| Input over 10 MiB | both modes; Neovim is not started | fixed |
+| Over 1,000 screen rows (Neovim's maximum `lines`) | complete output | `--lines` renders a viewport; the `nvim` pager has no row limit |
+| Over `--budget` seconds (default 5; `0` disables it) | complete output | `--budget` |
+| Neovim silent for `--timeout` seconds (default 8) | both modes, each render step | `--timeout` |
+
+A viewport falls back to the same viewport of bat's output (`--start-line` and the height select bat's lines),
+so fzf previews show text instead of an error. Complete fallback output is paged like a normal render; with
+the `nvim` pager it goes to `less -R`, since it is already ANSI text. `--fallback=none` reports the limit as an
+error (exit 1) instead, as does a missing or failing bat. Very large Markdown tables
 hit this: Neovim's Tree-sitter highlighter does per-line work for every injected tree, and each table cell is
 one tree (see [docs/upstream](docs/upstream/neovim-treesitter-injection-cost.md)). `mdpreview-dispatch`
 uses `--budget=2` so fzf previews stay responsive.
+
+There is no streaming. The whole input is read into memory and loaded into one Neovim buffer, and
+Tree-sitter parses all of it, even for a one-screen viewport, so time and memory grow with the input size,
+not the output. A 40-row viewport of plain prose, measured 2026-10-31 under load 6 (times are high):
+
+| Input | Time | Neovim peak RSS |
+|---|---|---|
+| 0.1 MiB | 0.6 s | 25 MiB |
+| 1 MiB | 1.8 s | 80 MiB |
+| 5 MiB | 6 s | 320 MiB |
+| 9.9 MiB | 13 s | 615 MiB |
+
+Large files are therefore not a supported use: the practical limit is time, well before the 10 MiB cap, and
+Markdown tables cost much more per byte than prose (see above). Complete output stops at 1,000 rows, roughly
+a few hundred source lines of prose.
 
 ### Syntax engine
 
@@ -165,10 +204,21 @@ Install with `make install` (see [Install](#install)).
 
 ```sh
 printf '%s\n' ./*.md |
-  fzf --preview 'mdpreview --all {}' \
+  fzf --preview 'mdpreview --all -- {}' \
       --preview-window 'right:75%:nowrap' \
       --bind 'resize:refresh-preview'
 ```
+
+fzf quotes `{}` for the shell, so names with spaces, quotes, `|` or `$` arrive intact; the `--` keeps a
+name that starts with `-` from being read as an option. To preview grep matches, split them on a tab rather
+than `:`, which filenames can contain (`c:d.md` would otherwise become the file `c`):
+
+```sh
+rg --line-number --with-filename --field-match-separator=$'\t' PATTERN |
+  fzf --delimiter '\t' --preview 'mdpreview --start-line {2} -- {1}'
+```
+
+Names containing a tab or newline cannot be represented as fzf lines this way.
 
 `--all` emits the complete document for scrolling. Omit it for a single viewport, sized using
 `FZF_PREVIEW_COLUMNS` and `FZF_PREVIEW_LINES` (see [Output modes](#output-modes)). Neovim performs wrapping; refreshing on resize recomputes layout.
@@ -219,7 +269,9 @@ bats tests/
 
 `make test` runs the same. Files: `dispatch.bats` (routing, with stub commands), `render.bats` (every table
 filetype through the configured Neovim), `pager.bats` (the built-in Neovim pager, driven in a pty),
-`paging.bats` (external pagers), `fallback.bats`, `config.bats`, `timings.bats` (`--timings`, `--syntax`),
+`paging.bats` (external pagers), `fallback.bats` (every limit), `config.bats`, `timings.bats` (`--timings`,
+`--syntax`), `dependencies.bats` (query mismatches, missing dependencies), `inputs.bats` (extension case,
+symbolic links, unreadable and empty inputs), `version.bats`,
 `benchmarks.bats` (the benchmark scripts), `robustness.bats`
 (tails, viewports, filenames, stdin, modelines, errors, terminal round trip, signal cleanup, immutability,
 sandbox), `languages.bats` (code-fence colors), and `fzf.bats` (a real fzf session; skipped without fzf).
@@ -246,7 +298,8 @@ disabled. The profile loads selected editor settings and parser/query pairs. Aft
 readiness, Python converts the RGB screen grid into ANSI output and closes Neovim.
 
 `readonly.py` restricts filesystem writes with Linux Landlock. The query extension handles C++ fence labels.
-Each invocation starts a new Neovim; there is no persistent worker. Input is limited to 10 MiB, width to
-10–500 columns, and complete output to 4,096 screen rows. A viewport still loads the whole input file.
+Each invocation starts a new Neovim; there is no persistent worker. Width is limited to 10–500 columns;
+input over 10 MiB and complete output over 1,000 screen rows fall back to bat (see
+[Limits and fallback](#limits-and-fallback)). A viewport still loads the whole input file.
 
 Released-Neovim compatibility remains unverified (see TODO.md).

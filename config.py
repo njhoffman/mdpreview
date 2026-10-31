@@ -115,6 +115,8 @@ def problems(settings):
   errors, warnings = [], []
   if not settings["nvim"]:
     errors.append("Neovim not found (set nvim, or put nvim on PATH)")
+  elif not shutil.which(settings["nvim"]):
+    errors.append(f"Neovim executable not found or not executable: {settings['nvim']} (nvim setting or --nvim)")
   render_markdown = settings["render_markdown"]
   if not render_markdown or not (render_markdown / "lua/render-markdown").is_dir():
     errors.append("render-markdown.nvim not found (set render_markdown, or install it under plugin_dirs)")

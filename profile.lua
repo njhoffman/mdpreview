@@ -2,7 +2,7 @@ local hrtime = vim.uv.hrtime
 -- timings: {name, milliseconds} per phase in first-recorded order, summed over repeats (mdpreview --timings).
 -- marks: hrtime (CLOCK_MONOTONIC nanoseconds) when this profile was sourced and when setup began, so mdpreview
 -- can split Neovim's startup.
-local M = { token = 0, timings = {}, marks = { profile = hrtime() } }
+local M = { token = 0, timings = {}, marks = { profile = hrtime() }, warnings = {} }
 _G.mdpreview = M
 
 -- Add the time since start (an hrtime) to phase name; returns now, so consecutive phases can chain.
@@ -75,6 +75,58 @@ local function markdown_options(file)
   local options = captured or (type(returned) == "table" and returned)
   assert(options, "markdown_options " .. file .. " neither called setup() nor returned a table")
   return options
+end
+
+-- "Query error at 1:2. Invalid node type "x"" from an error raised with a Lua location and a source excerpt.
+local function first_line(err)
+  return (tostring(err):gsub("^.-%.lua:%d+: ", ""):match("^[^\n]*"):gsub(":$", ""))
+end
+
+-- The compile error of a query, naming the file that causes it (each of the query's files compiled alone).
+local function query_problem(lang, name, err)
+  for _, file in ipairs(vim.treesitter.query.get_files(lang, name)) do
+    local handle = io.open(file, "r")
+    if handle then
+      local ok, file_err = pcall(vim.treesitter.query.parse, lang, handle:read("*a"))
+      handle:close()
+      if not ok then
+        return first_line(file_err) .. " in " .. file
+      end
+    end
+  end
+  return first_line(err)
+end
+
+-- A query written for another version of its parser fails to compile ("Invalid node type"). Neovim's
+-- ftplugins, the highlighter and injections all call query.get, so the error would abort the render with a
+-- stack trace. Report it once as a warning and treat the query as missing: the language loses Tree-sitter
+-- highlighting (highlight() switches it to regex syntax) and the rest of the document still renders.
+local get_query = vim.treesitter.query.get
+local reported = {}
+local function guarded_get(lang, name)
+  local ok, result = pcall(get_query, lang, name)
+  if ok then
+    return result
+  end
+  local key = lang .. "/" .. name
+  if not reported[key] then
+    reported[key] = true
+    local problem = query_problem(lang, name, result)
+    local advice = problem:find("Query error", 1, true)
+        and "; update the " .. lang .. " parser and its queries together (see parser_dir in mdpreview --check)"
+      or ""
+    table.insert(M.warnings, ("%s %s query failed: %s%s"):format(lang, name, problem, advice))
+  end
+  return nil
+end
+-- query.get is a memoized callable table on recent Neovim (query.set calls get:clear()), a function before.
+if type(get_query) == "table" then
+  vim.treesitter.query.get = setmetatable({}, {
+    __index = get_query,
+    __call = function(_, lang, name) return guarded_get(lang, name) end,
+  })
+else
+  vim.treesitter.query.get = guarded_get
 end
 
 -- paths: settings from config.py runtime_paths(); every key except render_markdown may be nil.
@@ -185,11 +237,20 @@ local function highlight(filetype, lang, syntax)
   if treesitter then
     vim.treesitter.start(0, lang)
     start = lap("open: treesitter start", start)
+    if vim.treesitter.query.get(lang, "highlights") == nil then -- Did not compile (warned); memoized otherwise.
+      vim.treesitter.stop(0)
+      treesitter = false
+    end
+  end
+  if treesitter then
     -- Parse synchronously, injections included, so the captured screen is fully highlighted.
     vim.treesitter.get_parser(0, lang):parse(true)
     lap("open: parse", start)
     M.engine = "treesitter"
   else
+    if vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] then
+      vim.treesitter.stop(0) -- Started by the filetype's ftplugin, e.g. Neovim's own for Lua.
+    end
     vim.cmd("syntax enable")
     vim.bo.syntax = filetype
     lap("open: regex syntax", start)
@@ -269,6 +330,7 @@ function M.info()
     extmarks = #vim.api.nvim_buf_get_extmarks(0, namespace, 0, -1, {}),
     normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false }),
     timings = M.timings,
+    warnings = M.warnings,
     marks = M.marks,
     callbacks = M.callbacks,
   }
@@ -276,6 +338,41 @@ end
 
 -- Built-in pager: the document in this Neovim, attached to the user's terminal. session: {paths, path,
 -- filetype} from mdpreview's page_nvim(). Keys follow less where Neovim's own would edit the buffer.
+-- mdpreview --check: compile the highlights and injections queries of each language, and write a JSON report
+-- to stdout: languages whose queries compile, those without a parser or a highlights query (shown with regex
+-- syntax), and the compile failures (M.warnings).
+-- installed: also every parser on the runtimepath, since code fences can inject any of them (slow).
+function M.check_queries(langs, installed)
+  local report = { ok = {}, no_parser = {}, no_highlights = {} }
+  local seen = {}
+  for _, lang in ipairs(langs) do
+    seen[lang] = true
+  end
+  for _, file in ipairs(installed and vim.api.nvim_get_runtime_file("parser/*.so", true) or {}) do
+    local lang = vim.fn.fnamemodify(file, ":t:r")
+    if not seen[lang] then
+      seen[lang] = true
+      table.insert(langs, lang)
+    end
+  end
+  for _, lang in ipairs(langs) do
+    if not pcall(vim.treesitter.language.add, lang) then
+      table.insert(report.no_parser, lang)
+    elseif #vim.treesitter.query.get_files(lang, "highlights") == 0 then
+      table.insert(report.no_highlights, lang)
+    else
+      local before = #M.warnings
+      vim.treesitter.query.get(lang, "highlights")
+      vim.treesitter.query.get(lang, "injections")
+      if #M.warnings == before then
+        table.insert(report.ok, lang)
+      end
+    end
+  end
+  report.warnings = M.warnings
+  io.stdout:write(vim.json.encode(report))
+end
+
 function M.pager(session)
   vim.o.shortmess = vim.o.shortmess .. "IF"
   M.setup(nil, session.paths)
@@ -291,6 +388,9 @@ function M.pager(session)
   end
   vim.bo.modifiable = false
   vim.bo.modified = false
+  if #M.warnings > 0 then
+    vim.notify("mdpreview: " .. table.concat(M.warnings, "\nmdpreview: "), vim.log.levels.WARN)
+  end
   local map = function(lhs, rhs)
     vim.keymap.set("n", lhs, rhs, { buffer = true, nowait = true, silent = true })
   end

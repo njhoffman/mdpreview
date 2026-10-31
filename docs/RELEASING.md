@@ -15,12 +15,20 @@ changes that require consumers to alter configuration or invocation.
 
 ## Release checklist
 
+Every version listed in the changelog is released on its own: one release commit and one annotated tag. Do
+not stack several unreleased versions in the working tree; if that happens, merge them into one changelog
+section and release them under a single version.
+
 1. Review [TODO.md](../TODO.md), complete applicable validation, and inspect the diff for generated/private files.
-2. Run `benchmarks/run` and check the SYNTAX.md table for regressions against the averages.
-3. Update [CHANGELOG.md](../CHANGELOG.md) with the version, date, behavior changes, and remaining limits.
-4. Ensure the CLI's version agrees with the tag once `--version` has been implemented.
-5. Commit the release contents on the intended branch.
-6. Create an annotated tag, then push the branch and that exact tag together:
+2. Run `make check-dev`, then the whole portable suite with `make test` (`bats tests/`); every test must pass.
+   Note any skips (fzf, rg, script or Neovim versions not installed) in the release commit message.
+3. Run `benchmarks/run` and check the SYNTAX.md table for regressions against the averages.
+4. Update [CHANGELOG.md](../CHANGELOG.md): move the `[Unreleased]` entries under the new version and date,
+   describe every user-visible change (behavior, options, output, errors), and state the known limitations
+   that remain. `VERSION` holds the same number (`bats tests/version.bats` checks both).
+5. Ensure `mdpreview --version` agrees with the tag (`bats tests/version.bats` checks a tagged HEAD).
+6. Commit the release contents on the intended branch.
+7. Create an annotated tag, then push the branch and that exact tag together:
 
 ```sh
 git tag -a v0.1.0 -m "Release v0.1.0: initial Markdown renderer"

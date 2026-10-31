@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # End-to-end rendering through Neovim. Needs the local Neovim, parsers, and theme (see README).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
   MDPREVIEW=$ROOT/mdpreview
@@ -110,4 +112,14 @@ print("ok")
 PY
   [ "$status" -eq 0 ]
   [ "$output" = ok ]
+}
+
+@test "--syntax regex applies to filetypes whose ftplugin starts Tree-sitter (Lua)" {
+  printf -- '-- comment\nlocal x = "s"\n' > "$BATS_TEST_TMPDIR/sample.lua"
+  treesitter=$("$MDPREVIEW" --paging=never --columns 40 "$BATS_TEST_TMPDIR/sample.lua")
+  run --separate-stderr "$MDPREVIEW" --paging=never --columns 40 --syntax regex --timings-json \
+    "$BATS_TEST_TMPDIR/sample.lua"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *'"engine": "syntax"'* ]]
+  [ "$output" != "$treesitter" ]
 }

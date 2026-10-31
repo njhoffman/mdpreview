@@ -72,3 +72,133 @@ setup() {
   [ "$status" -eq 0 ]
   [ "${#lines[@]}" -ge 1500 ]
 }
+
+hanging_nvim() {
+  printf '#!/bin/sh\nexec sleep 30\n' > "$BATS_TEST_TMPDIR/nvim"
+  chmod +x "$BATS_TEST_TMPDIR/nvim"
+  echo "$BATS_TEST_TMPDIR/nvim"
+}
+
+big_markdown() {
+  # Just over 10 MiB: the heading, then filler lines.
+  { echo '# Big'; yes 'filler line of text' | head -c $((10 * 1024 * 1024 + 4096)); echo; echo 'LAST'; } > "$1"
+}
+
+@test "a timeout falls back to bat for complete output" {
+  run --separate-stderr "$MDPREVIEW" --nvim "$(hanging_nvim)" --timeout 1 --paging=never --columns 80 \
+    "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *'1 s timeout (--timeout)'*'showing bat output instead'* ]]
+  [[ $output == *'Title'* ]]
+}
+
+@test "a timeout falls back to bat for a viewport, cut to the viewport" {
+  run --separate-stderr "$MDPREVIEW" --nvim "$(hanging_nvim)" --timeout 1 --paging=never --columns 80 \
+    --lines 3 --start-line 2 "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 0 ]
+  expected=$(bat --color=always --paging=never --style=plain --terminal-width=80 --language=markdown \
+    --line-range=2:4 -- "$FIXTURES/markdown/sample.md")
+  [ "$output" = "$expected" ]
+}
+
+@test "fzf previews fall back on a timeout too" {
+  run --separate-stderr env FZF_PREVIEW_COLUMNS=60 FZF_PREVIEW_LINES=4 \
+    "$MDPREVIEW" --nvim "$(hanging_nvim)" --timeout 1 "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -le 4 ]
+  [[ $output == *'Title'* ]]
+}
+
+@test "--fallback=none reports the timeout and the flag" {
+  run "$MDPREVIEW" --nvim "$(hanging_nvim)" --timeout 1 --fallback=none --paging=never --columns 80 \
+    "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 1 ]
+  [[ $output == 'mdpreview: Neovim did not answer within the 1 s timeout (--timeout)'* ]]
+}
+
+@test "input over 10 MiB falls back to bat without starting Neovim" {
+  big_markdown "$BATS_TEST_TMPDIR/big.md"
+  run --separate-stderr "$MDPREVIEW" --nvim "$(hanging_nvim)" --paging=never --columns 80 "$BATS_TEST_TMPDIR/big.md"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *'over the 10 MiB limit; showing bat output instead'* ]]
+  [[ $output == *'Big'* ]]
+  [[ $(tail -n 1 <<<"$output") == *'LAST'* ]]
+}
+
+@test "stdin over 10 MiB reaches bat in full" {
+  big_markdown "$BATS_TEST_TMPDIR/big.md"
+  run --separate-stderr bash -c "'$MDPREVIEW' --paging=never --columns 80 - < '$BATS_TEST_TMPDIR/big.md'"
+  [ "$status" -eq 0 ]
+  [[ $(tail -n 1 <<<"$output") == *'LAST'* ]]
+}
+
+@test "input over 10 MiB in a viewport shows only the viewport" {
+  big_markdown "$BATS_TEST_TMPDIR/big.md"
+  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --lines 2 "$BATS_TEST_TMPDIR/big.md"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "--fallback=none rejects input over 10 MiB by size" {
+  big_markdown "$BATS_TEST_TMPDIR/big.md"
+  run "$MDPREVIEW" --fallback=none --paging=never --columns 80 "$BATS_TEST_TMPDIR/big.md"
+  [ "$status" -eq 1 ]
+  [[ $output == 'mdpreview: input is 10.0 MiB, over the 10 MiB limit' ]]
+}
+
+@test "the row limit names --lines and falls back" {
+  rows=$BATS_TEST_TMPDIR/rows.md
+  # Few source lines that wrap to over 1000 rows, so the limit trips on the first frame.
+  for i in $(seq 1 50); do printf 'word%.0s ' $(seq 1 1600); echo; echo; done > "$rows"
+  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --budget 0 "$rows"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *'exceeds 1000 screen rows (--lines renders a viewport)'* ]]
+}
+
+@test "over 1000 source lines fall back at once instead of waiting for a grid Neovim never makes" {
+  # Neovim clamps 'lines' to 1000; a taller grid request used to wait for the budget or --timeout.
+  seq 1 1010 > "$BATS_TEST_TMPDIR/long.txt"
+  SECONDS=0
+  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --budget 0 --timeout 30 --filetype text \
+    "$BATS_TEST_TMPDIR/long.txt"
+  [ "$status" -eq 0 ]
+  [[ $stderr == *'exceeds 1000 screen rows'* ]]
+  [ "$(wc -l <<<"$output")" -eq 1010 ]
+  [ "$SECONDS" -lt 15 ]
+}
+
+@test "a document that needs a resize past 1000 rows still renders when it fits" {
+  # 500 source lines start a 504-row grid; wrapping needs about 750 rows, and doubling asked for 1008.
+  for i in $(seq 1 250); do printf 'Paragraph %s %s\n\n' "$i" "$(printf 'lorem ipsum %.0s' $(seq 1 6))"; done \
+    > "$BATS_TEST_TMPDIR/wrapped.md"
+  run --separate-stderr "$MDPREVIEW" --paging=never --columns 40 --budget 0 --timeout 30 --fallback=none \
+    "$BATS_TEST_TMPDIR/wrapped.md"
+  [ "$status" -eq 0 ] || { echo "$stderr"; return 1; }
+  [[ $output == *'Paragraph 250'* ]]
+}
+
+@test "--lines over 1000 is rejected" {
+  run "$MDPREVIEW" --lines 1001 "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 1 ]
+  [[ $output == *'1–1000 lines'* ]]
+}
+
+@test "a missing bat is named when a fallback is needed" {
+  mkdir "$BATS_TEST_TMPDIR/bin"
+  ln -s "$(command -v python3)" "$BATS_TEST_TMPDIR/bin/python3"
+  run env PATH="$BATS_TEST_TMPDIR/bin" /usr/bin/python3 "$MDPREVIEW" --nvim "$(command -v nvim)" \
+    --paging=never --columns 80 --budget 0.01 "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 1 ]
+  [[ $output == *'bat, the fallback renderer, is not installed' ]]
+}
+
+@test "a failing bat is reported without a traceback" {
+  mkdir "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\nexit 3\n' > "$BATS_TEST_TMPDIR/bin/bat"
+  chmod +x "$BATS_TEST_TMPDIR/bin/bat"
+  run env PATH="$BATS_TEST_TMPDIR/bin:$PATH" "$MDPREVIEW" --paging=never --columns 80 --budget 0.01 \
+    "$FIXTURES/markdown/sample.md"
+  [ "$status" -eq 1 ]
+  [[ $output == *'the bat fallback failed with exit status 3' ]]
+  [[ $output != *Traceback* ]]
+}

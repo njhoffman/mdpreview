@@ -6,6 +6,61 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-31
+
+### Added
+
+- `-v` as a short form of `--version`, and `-c`/`--cat` for `--paging=never`.
+- `--version` prints `mdpreview X.Y.Z` from the `VERSION` file; `--check` lists it with the other versions.
+- `tests/version.bats`: `--version`, `VERSION`, the newest CHANGELOG release and a tagged HEAD agree.
+- `--check` compiles the Tree-sitter highlights and injections queries of every `filetypes.json` language,
+  reports failures as warnings and lists the languages shown with regex syntax; `--check --all` covers every
+  installed parser (code fence languages; about 20 s with 300 parsers).
+- `tests/dependencies.bats`: query mismatches, a missing or broken Neovim, a missing msgpack, Lua errors.
+- `tests/inputs.bats`: every Markdown extension in lower, upper and mixed case, uppercase extensions of other
+  filetypes, symbolic links and chains, unreadable inputs, empty files and stdin in each mode, and a Neovim
+  killed mid-render.
+- `tests/fzf.bats`: names with `|`, `:`, quotes, spaces, `$(...)`, glob characters and a leading `-` pass
+  through fzf's `{}` to mdpreview and mdpreview-dispatch, and a tab-separated grep match jumps to its line.
+- `docs/RELEASING.md`: one commit and tag per changelog version, and the full test suite before each release.
+- README: memory and time limits by input size; mdpreview does not stream and is not meant for large files.
+
+### Changed
+
+- Every render limit now falls back to bat with a one-line notice naming the limit and the flag that changes
+  it: input over 10 MiB (Neovim is not started; stdin is passed on in full) and a `--timeout` now join the
+  4,096-row limit and `--budget`. A timeout falls back in viewports and fzf previews too, showing the same
+  viewport of bat's output instead of an error. `--fallback=none` still turns each into an error.
+- Fallback output for the `nvim` pager is paged with `less -R`.
+- A Tree-sitter query that does not compile against its parser ("Invalid node type"), whether for the file's
+  language, Markdown, or a language in a code fence, no longer aborts the render with a Lua stack trace. That
+  language loses Tree-sitter highlighting (a whole file falls back to regex syntax) and one warning on stderr
+  names the query file and what to update. The Neovim pager shows the warning as a notification.
+- Errors from Neovim are reduced to their innermost message, without stack traces or autocommand chains.
+
+### Fixed
+
+- A `FZF_PREVIEW_COLUMNS` or `FZF_PREVIEW_LINES` that is not a whole number is a usage error naming the variable
+  (exit 2) instead of a Python `ValueError` traceback; an empty value counts as unset.
+- Complete output never finished for documents over 1,000 screen rows, or ones whose resize asked for more
+  (from about 500 source lines up): Neovim clamps its grid to 1,000 rows and mdpreview waited for a taller
+  frame until `--budget` or `--timeout` ran out, then blamed the budget. The row limit is now 1,000 (it was
+  documented as 4,096, which could never be reached), output over it falls back to bat at once with the
+  row-limit notice, and `--lines` accepts at most 1000.
+- The README no longer repeats the version number, which had fallen behind.
+- A failing bat during a fallback is reported with its exit status instead of a Python traceback, and a
+  missing bat is named in the error.
+- A timeout while Neovim was starting skipped the fallback.
+- `--syntax regex` now applies to filetypes whose Neovim ftplugin starts Tree-sitter itself, such as Lua.
+- A missing Python msgpack, and an `--nvim` or `nvim` setting that is not an executable, are reported in one
+  line instead of a traceback or `[Errno 2]`.
+- A symbolic link whose own name matches no `filetypes.json` entry is matched by its target's name, so an
+  extensionless link to a `.ebnf` file no longer renders as Markdown.
+- Unreadable inputs name the file and the reason (`no such file`, `broken symbolic link to X`, `too many
+  levels of symbolic links`, `permission denied`, `not a regular file`) instead of `[Errno N]` text.
+- The README fzf example failed for a filename starting with `-`; it now passes `--` before `{}`. A new grep
+  example splits matches on a tab, since a `:` in a filename broke `{1}`/`{2}`.
+
 ## [0.7.0] - 2026-10-31
 
 ### Added

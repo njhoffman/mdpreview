@@ -13,7 +13,7 @@ Reviewed: 2026-10-31
 - [x] (p1) [test] Turn the historical harnesses into tests that resolve paths from the checkout and use temporary output directories.
 - [x] (p2) [test] Add self-contained fixtures for Markdown structures, all supported code languages, aliases, Unicode, and long lines.
 - [x] (p2) [test] Retain checks for complete-document tails, stdin, unusual filenames, modelines, cancellation, and source immutability.
-- [ ] (p2) [test] Exercise parser/query mismatches and missing dependencies with actionable errors.
+- [x] (p2) [test] Exercise parser/query mismatches and missing dependencies with actionable errors.
 - [ ] (p2) [test] Test released Neovim versions and declare the supported minimum.
 - [ ] **Landlock allows writes to all of /tmp.** (p3) [refactor] `readonly.py` grants full write rights on
   `/tmp` rather than only the per-run `mdpreview-*` directory; scope the rule to that directory.
@@ -36,16 +36,20 @@ Reviewed: 2026-10-31
 - [ ] **File the Neovim issue.** (p2) [chore] Draft and `nvim --clean` repro in
   `docs/upstream/neovim-treesitter-injection-cost.md`. Needs `gh auth login`; search for duplicates first,
   then link the issue here and drop the workaround notes once fixed upstream.
-- [ ] **Non-numeric fzf size variables give a raw ValueError.** (p3) [bug] `int(os.environ["FZF_PREVIEW_COLUMNS"])`
+- [x] **Non-numeric fzf size variables give a raw ValueError.** (p3) [bug] `int(os.environ["FZF_PREVIEW_COLUMNS"])`
   in `mdpreview` main() prints `invalid literal for int()`; report which variable was bad instead.
 - [x] **less shows Nerd Font icons as `<U+F0CA3>`.** (p1) [bug] less treats Private Use Area code points as
   non-printable; `page()` now sets `LESSUTFCHARDEF` for those ranges unless the user has one.
-- [ ] (p2) [feature] Add `--version` and keep its output consistent with the release tag.
+- [x] (p2) [feature] Add `--version` and keep its output consistent with the release tag.
 - [ ] (p3) [docs] Provide a checked-in mixed-file fzf integration example with bat fallback and resize refresh.
-- [ ] (p2) [test] Verify Markdown aliases, uppercase extensions, symlinks, empty files, and renderer failures.
-- [ ] (p2) [bug] Review selection parsing for filenames containing literal pipes or display separators.
+- [x] (p2) [test] Verify Markdown aliases, uppercase extensions, symlinks, empty files, and renderer failures.
+- [x] (p2) [bug] Review selection parsing for filenames containing literal pipes or display separators.
+  mdpreview parses no selection; fzf quotes `{}`. A leading `-` needed `--` in the README example, and grep
+  matches are split on a tab instead of `:` (`tests/fzf.bats`).
+- [ ] **mdpreview-dispatch takes a file named `--print` as its flag.** (p3) [bug] `gen-dispatch` checks
+  `$1 == --print` and accepts no `--`; have it skip a leading `--` and document `mdpreview-dispatch -- {}`.
 - [x] (p2) [docs] Clarify full-document versus viewport behavior and how scrolling interacts with each mode.
-- [ ] (p2) [feature] Define readable fallbacks for input, row, and timeout limits.
+- [x] (p2) [feature] Define readable fallbacks for input, row, and timeout limits.
 
 ## Replacing nvimpager
 
@@ -61,7 +65,7 @@ Reviewed: 2026-10-31
   whether mdpreview gets a follow mode or `vimtail` stays on nvimpager.
 - [x] **Add a paging mode through less.** (p2) [feature] Render the complete document (as `--all` does) and pipe
   it into `${MDPREVIEW_PAGER:-less -R}`; respect `$LESS`, and keep wide glyphs and RGB sequences intact.
-  Output over the 4,096-row limit should fall back to a clear error rather than a truncated page.
+  Output over the row limit (1,000 since 0.8.0) should fall back to a clear error rather than a truncated page.
 - [x] **Embedded Neovim pager.** (p3) [feature] Done in 0.6.0 as the default `--pager nvim`: Neovim runs on the
   terminal with the same profile (no RPC attach needed), read-only, with live render-markdown, search,
   re-wrap on resize, and less-style keys; `--pager less` or `pager = "less"` keeps less.
@@ -71,6 +75,9 @@ Reviewed: 2026-10-31
   `profile.lua` calls `require("render-markdown.core.ui").updater.new(...):run()` so the first frame is
   rendered; `update()` defers through `vim.schedule` and shows raw text once. Falls back to `update()` if the
   internal changes; ask upstream for a synchronous render API.
+- [ ] **Pager query warnings are untested.** (p3) [test] `M.pager` in `profile.lua` shows Tree-sitter query
+  warnings with `vim.notify`, but `tests/pager.bats` never breaks a query. Add a case with a broken
+  `queries/lua/highlights.scm` under `MDPREVIEW_PARSER_DIR` and assert the notification and the regex fallback.
 - [x] **Auto paging by default.** (p2) [feature] Decided: `--paging=auto|always|never` (matching bat), default
   `auto`: page with less when stdout is a terminal and the render is taller than the screen, otherwise cat.
   Treat `$FZF_PREVIEW_COLUMNS`/`LINES` and a `$NVIM` parent (Neovim terminal buffers, where Telescope's
@@ -85,10 +92,11 @@ Reviewed: 2026-10-31
   same file, and the dispatch overhead. Rough one-off timings on 2026-10-31 at 80 columns: most filetypes
   100-350 ms, markdown about 530 ms, astro about 710 ms, cuda about 950 ms (likely parser or injection
   loading). Record results in a doc and add a check that flags regressions. Also: a plain 5,000-line list
-  takes over 8 s at the 4,096-row grid even without tables, so tall grids are slow in their own right.
+  takes over 8 s at the 4,096-row grid even without tables. (0.8.0: that was a stall, not slowness; Neovim
+  clamps the grid to 1,000 rows and mdpreview waited for a taller frame.)
   Done: `benchmarks/filetypes` (`--check` flags regressions), results in docs/PERFORMANCE.md.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
-  `grid_scroll`, O(rows x columns) per scroll; at 4,096 rows this adds up. Copy only the scrolled region.
+  `grid_scroll`, O(rows x columns) per scroll; at 1,000 rows this adds up. Copy only the scrolled region.
 - [x] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.
   `benchmarks/run` records an fzf mode, startup and peak RSS of Neovim and Python.
 - [ ] (p3) [perf] Separate warm-process results from fresh-process measurements and rendered-output cache hits.
@@ -114,15 +122,16 @@ Reviewed: 2026-10-31
 - [ ] (p3) [test] Qualify transparent backgrounds, combining characters, emoji, and wide glyphs in more terminal/font combinations.
 - [ ] (p3) [feature] Preserve additional underline attributes and assess terminal hyperlink support.
 - [ ] (p3) [feature] Investigate complete-document export beyond one enlarged grid without duplicating or skipping virtual rows.
-- [ ] (p2) [docs] Define memory and parsing limits before claiming streaming or large-file support.
+- [x] (p2) [docs] Define memory and parsing limits before claiming streaming or large-file support.
+  README "Limits and fallback": no streaming, viewport time and memory by input size. Table-heavy input is
+  not measured yet.
 
 ## Releases
 
 - [x] **No version file.** (p2) [chore] The version exists only as tag `v0.1.0` and README text. Add a
   top-level `VERSION` (and have `--version` read it) so bumps have one source of truth.
-- [ ] (p2) [chore] Follow the SemVer and annotated-tag process in [docs/RELEASING.md](docs/RELEASING.md).
-- [ ] (p2) [docs] Record user-visible changes and known limitations in [CHANGELOG.md](CHANGELOG.md).
-- [ ] (p2) [test] Run the portable integration suite before each release once it is available.
+- [x] **README states a stale version.** (p3) [docs] `README.md:8` says `0.6.0` / `v0.6.0` while `VERSION` is
+  `0.7.0`. Point at `VERSION` and `mdpreview --version` instead of repeating the number, so bumps cannot drift.
 
 ## Optional support for other filetypes
 

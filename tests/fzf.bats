@@ -10,3 +10,50 @@
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [ "$(grep -c '^ok ' <<<"$output")" -eq 8 ]
 }
+
+# fzf quotes {} for the shell, so these names reach the previewer intact; `--` keeps a leading `-` from being
+# read as an option. become() runs the preview command with the same placeholder expansion as --preview.
+run_fzf() { # LIST_FILE COMMAND [FZF_OPTION...]: run COMMAND for the first line of LIST_FILE, output in $work/out
+  local list=$1 command=$2
+  shift 2
+  rm -f "$work/out"
+  options=
+  if (( $# )); then printf -v options '%q ' "$@"; fi
+  timeout 30 script -qec "fzf --sync $options --bind $(printf %q "start:become($command > $work/out 2>&1)") < $(printf %q "$list")" /dev/null >/dev/null
+}
+
+setup_names() {
+  command -v fzf >/dev/null || skip "fzf not installed"
+  command -v script >/dev/null || skip "script not installed"
+  work=$(mktemp -d "$BATS_TEST_TMPDIR/names.XXXXXX")
+  cd "$work"
+  names=('a|b.md' 'c:d.md' "e'f.md" 'g h.md' '-i.md' 'j"k.md' '$(x).md' 'l\m.md' 'n;o&p.md' 'q*r?.md')
+  for name in "${names[@]}"; do printf 'line\n# MARK_HEADING\n' > "$name"; done
+}
+
+@test "fzf: {} passes names with pipes, colons, quotes, spaces and a leading dash to mdpreview" {
+  setup_names
+  for name in "${names[@]}"; do
+    printf '%s\n' "$name" > "$work/list"
+    run_fzf "$work/list" "$BATS_TEST_DIRNAME/../mdpreview --lines 4 -- {}"
+    grep -q MARK_HEADING "$work/out" || { echo "$name: $(<"$work/out")"; return 1; }
+  done
+}
+
+@test "fzf: {} passes the same names to mdpreview-dispatch" {
+  setup_names
+  for name in "${names[@]}"; do
+    printf '%s\n' "$name" > "$work/list"
+    run_fzf "$work/list" "MDPREVIEW=$BATS_TEST_DIRNAME/../mdpreview $BATS_TEST_DIRNAME/../mdpreview-dispatch {}"
+    grep -q MARK_HEADING "$work/out" || { echo "$name: $(<"$work/out")"; return 1; }
+  done
+}
+
+@test "fzf: a tab-separated grep match keeps a colon in the filename and jumps to its line" {
+  setup_names
+  command -v rg >/dev/null || skip "rg not installed"
+  rg --no-config --color=never --line-number --with-filename --field-match-separator=$'\t' MARK_HEADING 'c:d.md' > "$work/list"
+  run_fzf "$work/list" "$BATS_TEST_DIRNAME/../mdpreview --lines 1 --start-line {2} -- {1}" --delimiter '\t'
+  grep -q MARK_HEADING "$work/out" || { cat "$work/out"; return 1; }
+  ! grep -q '^line' "$work/out"
+}
