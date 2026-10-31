@@ -6,6 +6,21 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-31
+
+Pages long documents with less by default on a terminal.
+
+### Added
+
+- `--paging=auto|always|never`. The default, `auto`, pages the complete document with
+  `$MDPREVIEW_PAGER` (default `less -R`) on a terminal when it is taller than the screen, and prints it
+  in pipes, viewports, fzf previews, and Neovim terminal buffers (Telescope).
+
+### Changed
+
+- Running `mdpreview FILE` in a terminal now opens long documents in less instead of printing them; use
+  `--paging=never` for the old behavior. `mdpreview-dispatch` passes `--paging=never`.
+
 ## [0.2.0] - 2026-10-31
 
 Renders non-Markdown filetypes and adds an fzf dispatcher.

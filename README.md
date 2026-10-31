@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.2.0`), with a matching annotated Git tag (`v0.2.0`).
+The current version is in [VERSION](VERSION) (`0.3.0`), with a matching annotated Git tag (`v0.3.0`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -35,7 +35,18 @@ Keep `mdpreview`, `profile.lua`, `readonly.py`, `filetypes.py`, `filetypes.json`
 ./mdpreview --start-line 20 --lines 40 README.md
 cat README.md | ./mdpreview -
 ./mdpreview --filetype tmux ~/.tmux.conf
+./mdpreview --paging=always README.md
 ```
+
+### Paging
+
+`--paging=auto` (the default) pipes the complete document into `$MDPREVIEW_PAGER` (default `less -R`; `$LESS`
+applies) when stdout is a terminal and the output is taller than the screen, and prints it otherwise. It
+always prints when stdout is piped, for a viewport (`--lines`, `--start-line`), inside fzf previews
+(`FZF_PREVIEW_COLUMNS`/`FZF_PREVIEW_LINES` set), and inside Neovim terminal buffers (`$NVIM` set), which
+covers Telescope's previewer even though it provides a terminal. `--paging=always` pages even short documents;
+`--paging=never` always prints. The pager runs with `LESSHISTFILE=-` because Landlock blocks writes outside
+`/tmp`, and Ctrl-C is left to the pager.
 
 Expose the executable on PATH with a symlink, not a copy: `ln -s "$PWD/mdpreview" ~/.local/bin/mdpreview`.
 On this machine that link points to the checkout under `~/ghq/github.com/njhoffman/mdpreview`. Supporting

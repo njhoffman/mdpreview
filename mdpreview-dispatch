@@ -94,6 +94,6 @@ if (( print )); then
   exit 1
 fi
 if [[ -n $filetype ]] && command -v "${MDPREVIEW:-mdpreview}" >/dev/null 2>&1; then
-  "${MDPREVIEW:-mdpreview}" --all --filetype "$filetype" -- "$file" 2>/dev/null && exit 0
+  "${MDPREVIEW:-mdpreview}" --all --paging=never --filetype "$filetype" -- "$file" 2>/dev/null && exit 0
 fi
 exec "${BAT:-bat}" --color=always --paging=never -- "$file"

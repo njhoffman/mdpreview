@@ -98,13 +98,13 @@ print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT")
 @test "filenames with spaces and leading dashes" {
   cp "$FIXTURES/markdown/sample.md" "$BATS_TEST_TMPDIR/-a b.md"
   MDPREVIEW=$STUBS/mdpreview-ok BAT=$STUBS/bat run "$DISPATCH" "$BATS_TEST_TMPDIR/-a b.md"
-  [ "$output" = "mdpreview --all --filetype markdown -- $BATS_TEST_TMPDIR/-a b.md" ]
+  [ "$output" = "mdpreview --all --paging=never --filetype markdown -- $BATS_TEST_TMPDIR/-a b.md" ]
 }
 
 @test "routed files call mdpreview with the filetype" {
   MDPREVIEW=$STUBS/mdpreview-ok BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/tmux/.tmux.conf"
   [ "$status" -eq 0 ]
-  [ "$output" = "mdpreview --all --filetype tmux -- $FIXTURES/tmux/.tmux.conf" ]
+  [ "$output" = "mdpreview --all --paging=never --filetype tmux -- $FIXTURES/tmux/.tmux.conf" ]
 }
 
 @test "other files go to bat" {

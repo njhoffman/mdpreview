@@ -34,8 +34,37 @@ Reviewed: 2026-10-31
 - [ ] (p2) [docs] Clarify full-document versus viewport behavior and how scrolling interacts with each mode.
 - [ ] (p2) [feature] Define readable fallbacks for input, row, and timeout limits.
 
+## Replacing nvimpager
+
+- [ ] **Replace nvimpager uses and aliases with mdpreview.** (p2) [chore] Depends on paging mode below.
+  `~/.shell/aliases/nvimpager.sh` defines `nvimpager` (wrapper), `vimcat`/`vc`, `vimpage`, `vimtail`/`vt`
+  (`vt.nvim-log`, `vt.syslog`, ...), `vc.syn FT`, and `vc.tmux-keys` (stdin with `ft=tmux`). Other callers:
+  `~/.shell/scripts/{vim-fzf-preview.sh,bat-list-preview,grc-list}`, `~/.shell/scripts/tools/vim-preview/`,
+  `~/.shell/zsh/{functions.zsh,plugin-configs/fzf-tab.zsh}`, `~/.shell/aliases/programs/hyperfine.sh`, and
+  tmux (`conf.d/{patterns,tools}.conf`, `scripts/{viewer,nvim-layout}.sh`; `@pattern_nvimpager` pane
+  detection must match the new command name). Then drop the deploy recipe
+  (`~/.shell/deploy/recipes/nvimpager.sh`, `catalog.tsv`). Mapping: `-l/--language` -> `--filetype`,
+  `-c` -> cat mode, `-p` -> paging mode. Gap: `-t/--tail` (follow a growing log) has no equivalent; decide
+  whether mdpreview gets a follow mode or `vimtail` stays on nvimpager.
+- [x] **Add a paging mode through less.** (p2) [feature] Render the complete document (as `--all` does) and pipe
+  it into `${MDPREVIEW_PAGER:-less -R}`; respect `$LESS`, and keep wide glyphs and RGB sequences intact.
+  Output over the 4,096-row limit should fall back to a clear error rather than a truncated page.
+- [ ] **Embedded Neovim pager.** (p3) [feature] Later alternative to less: attach the terminal to the embedded
+  Neovim with the same profile, read-only, giving Neovim search, live render-markdown, and re-wrap on resize
+  (closest to nvimpager `-p`). Needs a TUI attach path beside the screen-grab RPC loop and quit keys; would
+  also enable a tail/follow mode (`:checktime` timer) to replace `vimtail`.
+- [x] **Auto paging by default.** (p2) [feature] Decided: `--paging=auto|always|never` (matching bat), default
+  `auto`: page with less when stdout is a terminal and the render is taller than the screen, otherwise cat.
+  Treat `$FZF_PREVIEW_COLUMNS`/`LINES` and a `$NVIM` parent (Neovim terminal buffers, where Telescope's
+  previewer gives the command a real TTY) as cat. `mdpreview-dispatch` keeps forcing cat output.
+
 ## Performance
 
+- [ ] **Benchmark render time per filetype.** (p2) [perf] Time every `filetypes.json` entry with hyperfine (fixture
+  plus a larger realistic file each): Tree-sitter vs regex syntax, `--all` vs a viewport, against bat on the
+  same file, and the dispatch overhead. Rough one-off timings on 2026-10-31 at 80 columns: most filetypes
+  100-350 ms, markdown about 530 ms, astro about 710 ms, cuda about 950 ms (likely parser or injection
+  loading). Record results in a doc and add a check that flags regressions.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
   `grid_scroll`, O(rows x columns) per scroll; at 4,096 rows this adds up. Copy only the scrolled region.
 - [ ] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.

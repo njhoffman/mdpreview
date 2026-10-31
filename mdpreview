@@ -5,6 +5,7 @@ import argparse
 import os
 from pathlib import Path
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -264,6 +265,34 @@ def resolve_filetype(name, path):
   return {"filetype": entry["filetype"], "lang": entry.get("lang", entry["filetype"])}
 
 
+def should_page(mode, complete, output):
+  if mode != "auto":
+    return mode == "always"
+  if not complete or not sys.stdout.isatty():
+    return False
+  # fzf previews and Neovim terminal buffers (Telescope's previewer) give a TTY but want plain output.
+  if any(os.environ.get(name) for name in ["FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES", "NVIM"]):
+    return False
+  return output.count(b"\n") > shutil.get_terminal_size().lines
+
+
+def page(output):
+  command = shlex.split(os.environ.get("MDPREVIEW_PAGER") or "less -R")
+  # Writes outside /tmp are blocked by Landlock, so keep less from trying to save its history file.
+  environment = dict(os.environ, LESSHISTFILE="-")
+  previous = signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl-C belongs to the pager, as with git.
+  try:
+    pager = subprocess.Popen(command, stdin=subprocess.PIPE, env=environment)
+    try:
+      pager.stdin.write(output)
+      pager.stdin.close()
+    except BrokenPipeError:
+      pass  # The user quit before reading everything.
+    return pager.wait()
+  finally:
+    signal.signal(signal.SIGINT, previous)
+
+
 def positive(value):
   number = int(value)
   if number < 1:
@@ -281,6 +310,9 @@ def main():
   mode.add_argument("--lines", type=positive, help="Emit one viewport with this many rows")
   mode.add_argument("--all", action="store_true", help="Emit the complete document, up to 4096 screen rows")
   parser.add_argument("--start-line", type=positive, default=1, help="First source line for a viewport")
+  parser.add_argument("--paging", choices=["auto", "always", "never"], default="auto",
+                      help="Page the complete document with $MDPREVIEW_PAGER (default: less -R). auto pages when "
+                      "stdout is a terminal outside fzf and Neovim and the output is taller than the screen")
   parser.add_argument("--nvim", default=shutil.which("nvim"), help="Neovim executable; defaults to PATH")
   parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
   args = parser.parse_args()
@@ -294,6 +326,10 @@ def main():
     raise PreviewError("Supported dimensions: 10–500 columns, 1–4096 lines")
   if args.all and args.start_line != 1:
     raise PreviewError("--all cannot be combined with --start-line")
+  if args.paging == "always":
+    if args.lines is not None or args.start_line != 1:
+      raise PreviewError("--paging=always pages the complete document; remove --lines and --start-line")
+    all_rows = True
   paths = find_paths()
   with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
     if str(args.file) == "-":
@@ -313,8 +349,10 @@ def main():
       output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype)
     finally:
       renderer.close()
-    sys.stdout.buffer.write(output)
-    sys.stdout.buffer.flush()
+  if should_page(args.paging, all_rows, output):
+    return page(output)
+  sys.stdout.buffer.write(output)
+  sys.stdout.buffer.flush()
   return 0
 
 
