@@ -15,3 +15,11 @@ date	version	commit	sample	mode	median_ms	min_ms	runs	load1	nvim
 2026-10-31T21:05Z	0.4.1	8a1744c-dirty	large	viewport	781	736	3	3.77	NVIM v0.13.0-dev-1915+gc5641b2bfb
 2026-10-31T21:05Z	0.4.1	8a1744c-dirty	code	complete	1427	1272	3	3.77	NVIM v0.13.0-dev-1915+gc5641b2bfb
 2026-10-31T21:05Z	0.4.1	8a1744c-dirty	code	viewport	806	740	3	3.77	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	small	complete	731	681	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	small	viewport	711	701	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	medium	complete	1550	1448	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	medium	viewport	790	713	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	large	complete	2839	2695	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	large	viewport	759	683	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	code	complete	1351	1226	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T21:08Z	0.5.0	c1dac6b-dirty	code	viewport	800	726	3	4.55	NVIM v0.13.0-dev-1915+gc5641b2bfb

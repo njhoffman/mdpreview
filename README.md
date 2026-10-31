@@ -5,19 +5,41 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.5.0`), with a matching annotated Git tag (`v0.5.0`).
+The current version is in [VERSION](VERSION) (`0.5.1`), with a matching annotated Git tag (`v0.5.1`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
 ## Requirements
 
-- Linux on x86-64 with Landlock support.
-- `/usr/bin/python3` (3.11 or later) with the `msgpack` module.
-- A recent Neovim; tested with `v0.13.0-dev-1915+gc5641b2bfb`.
-- `render-markdown.nvim`, and optionally `mini.icons` (use a Nerd Font for its icons).
+Runtime (`make check`, or `mdpreview --check`, verifies these and prints the versions found):
 
-Dependencies are read from an existing installation; no plugin manager runs. Neovim's bundled markdown parsers
-are used unless a parser directory with newer ones is configured.
+| Dependency | Required | Tested with | Notes |
+|---|---|---|---|
+| Linux with Landlock | yes | kernel 6.17, ABI 7 | x86-64 |
+| Python | yes | 3.13.7 | 3.11 or later (`tomllib`); run as `/usr/bin/python3` |
+| msgpack (Python) | yes | 1.0.3 | `apt install python3-msgpack`, or `make deps` (pip, user install) |
+| Neovim | yes | v0.13.0-dev-1915+gc5641b2bfb | released versions not yet verified |
+| render-markdown.nvim | yes | v8.14.0-2-g8e87953 | any plugin manager; found under `plugin_dirs` |
+| mini.icons | no | v0.18.0-5-g9e4c164 | icons need a Nerd Font |
+| Tree-sitter parsers | no | | Neovim bundles markdown and markdown_inline; code fences and other filetypes need their parsers |
+| bat | no | 0.26.1 | fallback renderer and `mdpreview-dispatch` |
+| less | no | 668 | `--paging` (or set `MDPREVIEW_PAGER`) |
+
+Development (`make check-dev`): bats 1.5 or later, `script` (util-linux), fzf, git.
+
+Dependencies are read from an existing installation; no plugin manager runs.
+
+## Install
+
+```sh
+make check     # dependencies and resolved configuration
+make install   # symlink mdpreview and mdpreview-dispatch into ~/.local/bin (PREFIX=... to change)
+make uninstall
+```
+
+The commands are linked, not copied: mdpreview finds `profile.lua`, `readonly.py`, `config.py`,
+`filetypes.*` and `queries/` next to its real path, so keep the checkout in place. `make test`, `make bench`
+and `make dispatch` run the tests, the benchmarks and the dispatch generator.
 
 ## Configuration
 
@@ -38,7 +60,7 @@ error.
 
 ## Usage
 
-Keep `mdpreview`, `profile.lua`, `readonly.py`, `filetypes.py`, `filetypes.json`, and `queries/` together:
+Run from the checkout or after `make install`:
 
 ```sh
 ./mdpreview README.md
@@ -70,10 +92,7 @@ hit this: Neovim's Tree-sitter highlighter does per-line work for every injected
 one tree (see [docs/upstream](docs/upstream/neovim-treesitter-injection-cost.md)). `mdpreview-dispatch`
 uses `--budget=2` so fzf previews stay responsive.
 
-Expose the executable on PATH with a symlink, not a copy: `ln -s "$PWD/mdpreview" ~/.local/bin/mdpreview`.
-On this machine that link points to the checkout under `~/ghq/github.com/njhoffman/mdpreview`. Supporting
-files resolve relative to the executable's real location, so the directory can be moved as a unit; a copy
-fails because it cannot find `readonly.py`.
+Install with `make install` (see [Install](#install)).
 
 ## fzf
 

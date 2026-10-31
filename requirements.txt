@@ -1,0 +1,3 @@
+# Python dependencies for mdpreview (install with `make deps`, or apt install python3-msgpack).
+# Tested with msgpack 1.0.3.
+msgpack>=1.0

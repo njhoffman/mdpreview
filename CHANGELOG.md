@@ -6,6 +6,14 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-31
+
+### Added
+
+- `Makefile`: `install`/`uninstall` (symlinks into `$(PREFIX)/bin`, refusing to replace real files),
+  `check`, `check-dev`, `deps`, `test`, `bench`, `dispatch`.
+- `requirements.txt`, and a README dependency table with the versions tested.
+
 ## [0.5.0] - 2026-10-31
 
 Configurable dependencies instead of hardcoded personal paths.
