@@ -21,10 +21,21 @@ Reviewed: 2026-10-31
 
 ## CLI and fzf integration
 
-- [x] **Installed command on PATH is broken.** (p1) [bug] `~/.local/bin/mdpreview` is a copy, not a link.
-  It resolves `ROOT` to `~/.local/bin`, where `readonly.py`, `profile.lua` and `queries/` do not exist, so
-  `import readonly` fails. README also says the link points to `~/git/mdpreview`; the checkout is under
-  `~/ghq/github.com/njhoffman/mdpreview`. Replace the copy with a symlink and fix the README path.
+- [x] **Large tables hang rendering: `mdpreview SYNTAX.md` times out.** (p1) [bug] Two causes, both fixed for
+  viewports: Neovim's `conceal_lines` hook (dropped from the Markdown highlights query in `profile.lua`) and
+  render-markdown's debounce dropping the post-resize update (`config.debounce = 0`).
+- [x] **Complete output of very large tables is still too slow.** (p1) [perf] Mitigated: two forced redraws
+  removed and the grid pre-sized (2-3x faster), and output over `--budget` falls back to bat. The underlying
+  cost is in Neovim (rows x injected trees); see the two items below.
+- [ ] **Patch the Tree-sitter highlighter at runtime.** (p3) [perf] In `profile.lua`, wrap
+  `TSHighlighter`'s per-line path (`for_each_highlight_state` from `on_range_impl`) with a row-indexed lookup
+  of tree root ranges built once per `on_win`, so each line visits only intersecting trees. Would let
+  `SYNTAX.md`-sized tables render instead of falling back. Fragile: private internals of a dev build, so
+  feature-detect the fields, keep the unpatched path as fallback, and add a test that fails loudly when the
+  internals change. Prefer the upstream fix if it lands.
+- [ ] **File the Neovim issue.** (p2) [chore] Draft and `nvim --clean` repro in
+  `docs/upstream/neovim-treesitter-injection-cost.md`. Needs `gh auth login`; search for duplicates first,
+  then link the issue here and drop the workaround notes once fixed upstream.
 - [ ] **Non-numeric fzf size variables give a raw ValueError.** (p3) [bug] `int(os.environ["FZF_PREVIEW_COLUMNS"])`
   in `mdpreview` main() prints `invalid literal for int()`; report which variable was bad instead.
 - [ ] (p2) [feature] Add `--version` and keep its output consistent with the release tag.
@@ -64,7 +75,8 @@ Reviewed: 2026-10-31
   plus a larger realistic file each): Tree-sitter vs regex syntax, `--all` vs a viewport, against bat on the
   same file, and the dispatch overhead. Rough one-off timings on 2026-10-31 at 80 columns: most filetypes
   100-350 ms, markdown about 530 ms, astro about 710 ms, cuda about 950 ms (likely parser or injection
-  loading). Record results in a doc and add a check that flags regressions.
+  loading). Record results in a doc and add a check that flags regressions. Also: a plain 5,000-line list
+  takes over 8 s at the 4,096-row grid even without tables, so tall grids are slow in their own right.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
   `grid_scroll`, O(rows x columns) per scroll; at 4,096 rows this adds up. Copy only the scrolled region.
 - [ ] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.

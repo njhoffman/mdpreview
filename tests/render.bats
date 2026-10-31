@@ -78,3 +78,35 @@ print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT"); do
   [ "$status" -eq 0 ]
   [ "$(colors "$output")" -ge 3 ]
 }
+
+@test "a viewport of a 600-row table renders (conceal_lines per-line hook disabled)" {
+  table=$BATS_TEST_TMPDIR/table.md
+  { echo '| a | b | c | d |'; echo '|---|---|---|---|'
+    for i in $(seq 1 600); do echo "| \`f$i\` | \`.e$i\`, 1 pattern | \`p\` |  |"; done; } > "$table"
+  run "$MDPREVIEW" --paging=never --columns 120 --lines 20 --timeout 3 -- "$table"
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 20 ]
+}
+
+@test "back-to-back renders are not dropped by render-markdown's debounce" {
+  # Two renders on one Neovim land well inside a 50 ms debounce window; a throttled update never signals.
+  run python3 - "$ROOT" "$FIXTURES/markdown/sample.md" <<'PY'
+import importlib.machinery, importlib.util, shutil, sys, tempfile
+root, path = sys.argv[1], sys.argv[2]
+sys.path.insert(0, root)
+loader = importlib.machinery.SourceFileLoader("mdpreview_module", root + "/mdpreview")
+spec = importlib.util.spec_from_loader("mdpreview_module", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+    renderer = module.Renderer(shutil.which("nvim"), module.find_paths(), temporary, 80, 10, 4)
+    try:
+        for _ in range(3):
+            renderer.render(path, 80, 10, 1, True, {"filetype": "markdown", "lang": "markdown"})
+    finally:
+        renderer.close()
+print("ok")
+PY
+  [ "$status" -eq 0 ]
+  [ "$output" = ok ]
+}

@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.3.0`), with a matching annotated Git tag (`v0.3.0`).
+The current version is in [VERSION](VERSION) (`0.4.0`), with a matching annotated Git tag (`v0.4.0`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -47,6 +47,16 @@ always prints when stdout is piped, for a viewport (`--lines`, `--start-line`), 
 covers Telescope's previewer even though it provides a terminal. `--paging=always` pages even short documents;
 `--paging=never` always prints. The pager runs with `LESSHISTFILE=-` because Landlock blocks writes outside
 `/tmp`, and Ctrl-C is left to the pager.
+
+### Budget and fallback
+
+Complete output (the default in a terminal, and `--all`) must finish within `--budget` seconds (default 5;
+`0` disables it). Documents that take longer, or exceed 4,096 screen rows, are shown with bat instead
+(`--language=markdown` for Markdown, bat's own detection otherwise) with a one-line notice on stderr; the
+result is paged like a normal render. `--fallback=none` reports the error instead. Very large Markdown tables
+hit this: Neovim's Tree-sitter highlighter does per-line work for every injected tree, and each table cell is
+one tree (see [docs/upstream](docs/upstream/neovim-treesitter-injection-cost.md)). `mdpreview-dispatch`
+uses `--budget=2` so fzf previews stay responsive.
 
 Expose the executable on PATH with a symlink, not a copy: `ln -s "$PWD/mdpreview" ~/.local/bin/mdpreview`.
 On this machine that link points to the checkout under `~/ghq/github.com/njhoffman/mdpreview`. Supporting

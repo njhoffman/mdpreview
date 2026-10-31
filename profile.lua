@@ -23,7 +23,7 @@ local function notify_ready(win)
     if token ~= M.token then
       return
     end
-    vim.cmd("redraw!")
+    vim.cmd("redraw")
     vim.rpcnotify(M.channel, "mdpreview_ready", {
       token = token,
       buffer = vim.api.nvim_get_current_buf(),
@@ -55,6 +55,9 @@ function M.setup(channel, paths)
   dofile(paths.markdown_config)
   package.loaded["render-markdown"] = nil
   assert(config, "Markdown configuration did not call setup")
+  -- render-markdown's debounce is a throttle: an update within `debounce` ms of the previous one is
+  -- dropped, so the forced update after an --all resize could vanish and the render never signalled.
+  config.debounce = 0
   config.log_level = "error"
   config.log_runtime = false
   config.completions = { lsp = { enabled = false } }
@@ -68,6 +71,30 @@ function M.setup(channel, paths)
   require("mini.icons").setup()
   require("render-markdown").setup(config)
   dofile(paths.markdown_plugin .. "/plugin/render-markdown.lua")
+  M.tune_markdown_queries()
+end
+
+-- Neovim's Tree-sitter highlighter does per-line work proportional to the number of injected trees, and
+-- Markdown injects one markdown_inline tree per paragraph and per table cell. conceal_lines in the
+-- highlights query enables a per-line hook that re-parses and walks every tree, so line-height queries cost
+-- rows x trees: a 20-line viewport of a 600-row table never finished. render-markdown draws code fences
+-- itself, so drop conceal_lines. (Combining the inline injections was tried and hangs on some documents.)
+local function rewrite_query(lang, name, rewrite)
+  local sources = {}
+  for _, file in ipairs(vim.treesitter.query.get_files(lang, name)) do
+    local handle = assert(io.open(file, "r"))
+    table.insert(sources, rewrite(handle:read("*a")))
+    handle:close()
+  end
+  if #sources > 0 then
+    vim.treesitter.query.set(lang, name, table.concat(sources, "\n"))
+  end
+end
+
+function M.tune_markdown_queries()
+  rewrite_query("markdown", "highlights", function(text)
+    return (text:gsub('%(#set! conceal_lines ""%)', ""))
+  end)
 end
 
 local function has_highlights(lang)

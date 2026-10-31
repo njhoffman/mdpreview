@@ -27,6 +27,10 @@ class PreviewError(Exception):
   pass
 
 
+class TooLarge(PreviewError):
+  """Complete output exceeded the time budget or the row limit; a fallback renderer can take over."""
+
+
 class Cancelled(Exception):
   pass
 
@@ -65,6 +69,7 @@ class Renderer:
     self.serial = 0
     self.token = 0
     self.timeout = timeout
+    self.budget_deadline = None  # Overall deadline for complete output, see render(budget=...)
     self.flushes = 0
     self.unpacker = msgpack.Unpacker(raw=False, strict_map_key=False)
     env = dict(os.environ)
@@ -103,9 +108,13 @@ class Renderer:
     return result
 
   def pump(self, deadline):
-    remaining = deadline - time.monotonic()
+    budgeted = self.budget_deadline is not None and self.budget_deadline < deadline
+    remaining = (self.budget_deadline if budgeted else deadline) - time.monotonic()
     if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
-      raise PreviewError("Neovim did not finish rendering before the timeout")
+      detail = ("; Neovim reported: " + "; ".join(self.errors)) if self.errors else ""
+      if budgeted:
+        raise TooLarge("complete output took longer than the budget" + detail)
+      raise PreviewError("Neovim did not finish rendering before the timeout" + detail)
     data = os.read(self.process.stdout.fileno(), 65536)
     if not data:
       self.stderr.seek(0)
@@ -165,14 +174,15 @@ class Renderer:
     while not any(item["token"] == token and item["width"] == width and item["height"] == height
                   for item in self.ready):
       self.pump(deadline)
-    self.request("nvim_command", "redraw!")
+    # notify_ready redrew just before signalling, and grid events precede the notification on the channel.
     info = self.request("nvim_exec_lua", "return mdpreview.info()", [])
     # Plugins may leave v:errmsg set after a caught API error. Unhandled RPC/UI errors are authoritative.
     if self.errors:
       raise PreviewError("; ".join(self.errors))
     return info
 
-  def render(self, path, width, height, start_line=1, all_rows=False, filetype=None):
+  def render(self, path, width, height, start_line=1, all_rows=False, filetype=None, budget=None):
+    self.budget_deadline = time.monotonic() + budget if all_rows and budget else None
     self.token += 1
     self.request("nvim_exec_lua", "return mdpreview.open(...)", [str(path), start_line, self.token, filetype])
     info = self.wait_ready(self.token, width, height)
@@ -181,7 +191,7 @@ class Renderer:
         if info["total_height"] <= height and info["bottom_line"] == info["buffer_lines"]:
           break
         if info["total_height"] > MAX_ROWS or height == MAX_ROWS:
-          raise PreviewError(f"Full output exceeds {MAX_ROWS} screen rows; use --lines for a viewport")
+          raise TooLarge(f"Full output exceeds {MAX_ROWS} screen rows; use --lines for a viewport")
         height = min(MAX_ROWS, max(height * 2, info["total_height"] + 4))
         self.token += 1
         self.request("nvim_exec_lua", "mdpreview.token = ...", [self.token])
@@ -265,6 +275,14 @@ def resolve_filetype(name, path):
   return {"filetype": entry["filetype"], "lang": entry.get("lang", entry["filetype"])}
 
 
+def fallback_bat(path, width, filetype):
+  command = ["bat", "--color=always", "--paging=never", "--style=plain", f"--terminal-width={width}"]
+  if filetype == "markdown":
+    command.append("--language=markdown")
+  command += ["--", str(path)]
+  return subprocess.run(command, stdout=subprocess.PIPE, check=True).stdout
+
+
 def should_page(mode, complete, output):
   if mode != "auto":
     return mode == "always"
@@ -313,6 +331,10 @@ def main():
   parser.add_argument("--paging", choices=["auto", "always", "never"], default="auto",
                       help="Page the complete document with $MDPREVIEW_PAGER (default: less -R). auto pages when "
                       "stdout is a terminal outside fzf and Neovim and the output is taller than the screen")
+  parser.add_argument("--budget", type=float, default=5.0,
+                      help="Seconds allowed for complete output before falling back (default: 5; 0 disables)")
+  parser.add_argument("--fallback", choices=["bat", "none"], default="bat",
+                      help="Renderer used when complete output exceeds --budget or the row limit (default: bat)")
   parser.add_argument("--nvim", default=shutil.which("nvim"), help="Neovim executable; defaults to PATH")
   parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
   args = parser.parse_args()
@@ -343,10 +365,22 @@ def main():
     if path.stat().st_size > MAX_BYTES:
       raise PreviewError("Prototype input limit is 10 MiB")
     filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
+    if all_rows:
+      # Start near the final size: every full redraw costs rows x injected trees, and resizing a short grid to
+      # fit adds one. Wrapping and virtual rows can still need a resize.
+      with open(path, "rb") as handle:
+        source_rows = sum(chunk.count(b"\n") for chunk in iter(lambda: handle.read(1 << 16), b"")) + 1
+      height = max(height, min(MAX_ROWS, source_rows + 4))
     restrict_writes()
     renderer = Renderer(args.nvim, paths, temporary, width, height, args.timeout)
     try:
-      output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype)
+      output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype, args.budget)
+    except TooLarge as error:
+      if args.fallback == "none" or not shutil.which("bat"):
+        raise
+      renderer.close()
+      print(f"mdpreview: {error}; showing bat output instead (see --budget, --fallback)", file=sys.stderr)
+      output = fallback_bat(path, width, (filetype or {}).get("filetype"))
     finally:
       renderer.close()
   if should_page(args.paging, all_rows, output):

@@ -6,6 +6,35 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-31
+
+Large-table fixes, faster complete output, and a bat fallback.
+
+### Fixed
+
+- Large Markdown tables no longer hang: Neovim's `conceal_lines` highlight hook did per-line work over every
+  injected tree, so even a 20-line view of a 600-row table never finished. A 600-row viewport now takes
+  about 0.4 s. Complete output of very large tables is still slow (see Known limits).
+- Complete output (`mdpreview FILE` in a terminal, `--all`) of short documents could time out at random:
+  render-markdown's debounce dropped the update after the resize. mdpreview now disables it.
+- Timeouts report any errors Neovim raised while rendering.
+
+### Added
+
+- `--budget SECONDS` (default 5) for complete output, and `--fallback=bat|none`: documents that take longer
+  or exceed 4,096 rows are shown with bat (paged as usual) instead of failing. `mdpreview-dispatch` uses
+  `--budget=2`.
+- `docs/upstream/`: a draft Neovim issue with `nvim --clean` reproduction scripts for the highlighter cost.
+
+### Changed
+
+- Complete output is 2-3x faster on large documents: two forced full redraws per render were removed and the
+  grid starts at the document's line count instead of the screen height (300-row table 5.3 s to 1.8 s,
+  600-row 19 s to 5.3 s). Output is byte-identical.
+
+Known limits: complete output still grows with rows x table cells inside Neovim's Tree-sitter highlighter;
+`SYNTAX.md` (about 1,000 rows) falls back to bat.
+
 ## [0.3.0] - 2026-10-31
 
 Pages long documents with less by default on a terminal.
