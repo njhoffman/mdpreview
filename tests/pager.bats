@@ -29,6 +29,10 @@ session() {
   session keys "$DOCUMENT"
 }
 
+@test "--syntax regex reaches the pager: raw Markdown with Vim's syntax" {
+  session regex "$DOCUMENT" --syntax regex
+}
+
 @test "a terminal resize redraws" {
   session resize "$DOCUMENT"
 }

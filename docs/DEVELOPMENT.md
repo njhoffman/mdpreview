@@ -42,6 +42,16 @@ modelines, errors, SIGTERM/SIGINT/SIGKILL cleanup, source immutability, the Land
 code-token colors (`tests/helpers/languages.py`, which reads the theme's String color instead of hardcoding it),
 and a real fzf session (`tests/helpers/fzf_session.py`). The original harnesses and captures were removed.
 
+## Profiling
+
+Profile before optimizing: `./mdpreview --timings FILE` splits one render into startup, theme, plugin setup,
+parser loading, query compilation, parsing, render-markdown, redraw, Python's RPC handling, and ANSI encoding
+(see the README). Neovim records its phases with `vim.uv.hrtime()` in `profile.lua` (`lap()`), Python with
+`time.monotonic_ns()`; both are CLOCK_MONOTONIC, which is how Neovim's startup marks are placed on Python's
+timeline. Add a phase by wrapping it in `lap(name, start)` (Neovim) or `timings.phase(name)` (Python); a
+name with `": "` is a sub-phase of the part before it. `benchmarks/filetypes` and `benchmarks/run` read
+`--timings-json`; findings are in [PERFORMANCE.md](PERFORMANCE.md).
+
 ## Mixed-file fzf routing
 
 Use the generated `mdpreview-dispatch` (see the README): it routes Markdown and the filetypes in
@@ -58,4 +68,5 @@ waiting for render-markdown. Parsers load on demand.
 ## Follow-up work
 
 See [TODO.md](../TODO.md). Keep the input immutability, cancellation, and ANSI-output checks for any
-optimization, and run `benchmarks/run` after every change.
+optimization, and run `benchmarks/run` after every change; run `benchmarks/filetypes --check` after changes
+to the profile, the filetype table, or parser handling.

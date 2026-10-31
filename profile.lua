@@ -1,5 +1,22 @@
-local M = { token = 0 }
+local hrtime = vim.uv.hrtime
+-- timings: {name, milliseconds} per phase in first-recorded order, summed over repeats (mdpreview --timings).
+-- marks: hrtime (CLOCK_MONOTONIC nanoseconds) when this profile was sourced and when setup began, so mdpreview
+-- can split Neovim's startup.
+local M = { token = 0, timings = {}, marks = { profile = hrtime() } }
 _G.mdpreview = M
+
+-- Add the time since start (an hrtime) to phase name; returns now, so consecutive phases can chain.
+local function lap(name, start)
+  local now = hrtime()
+  for _, entry in ipairs(M.timings) do
+    if entry[1] == name then
+      entry[2] = entry[2] + (now - start) / 1e6
+      return now
+    end
+  end
+  table.insert(M.timings, { name, (now - start) / 1e6 })
+  return now
+end
 
 for name, value in pairs({
   shadafile = "NONE", swapfile = false, undofile = false, backup = false,
@@ -19,11 +36,21 @@ vim.g.loaded_perl_provider = 0
 
 local function notify_ready(win)
   local token = M.token
+  if M.update_started then
+    lap("render", M.update_started)
+    M.update_started = nil
+  end
+  local scheduled = hrtime()
   vim.schedule(function()
     if token ~= M.token then
       return
     end
+    -- render-markdown calls on.render three times per Markdown frame, and each redraws (see PERFORMANCE.md).
+    M.callbacks = (M.callbacks or 0) + 1
+    -- Other queued work (render-markdown's own callbacks, Tree-sitter's async parsing) runs before this.
+    local start = lap("queued", scheduled)
     vim.cmd("redraw")
+    lap("redraw", start)
     vim.rpcnotify(M.channel, "mdpreview_ready", {
       token = token,
       buffer = vim.api.nvim_get_current_buf(),
@@ -53,6 +80,8 @@ end
 -- paths: settings from config.py runtime_paths(); every key except render_markdown may be nil.
 -- channel: the RPC channel for the screen grab, or nil for the pager.
 function M.setup(channel, paths)
+  local start = hrtime()
+  M.marks.setup = start
   M.channel = channel
   vim.opt.runtimepath:append(paths.render_markdown)
   if paths.icons then
@@ -70,12 +99,14 @@ function M.setup(channel, paths)
   if paths.lua_path then
     package.path = paths.lua_path .. "/?.lua;" .. paths.lua_path .. "/?/init.lua;" .. package.path
   end
+  start = lap("setup: runtimepath", start)
   vim.cmd("highlight clear")
   if paths.theme then
     dofile(paths.theme).apply()
   elseif paths.colorscheme then
     vim.cmd.colorscheme(paths.colorscheme)
   end
+  start = lap("setup: theme", start)
 
   local config = markdown_options(paths.markdown_options)
   -- render-markdown's debounce is a throttle: an update within `debounce` ms of the previous one is
@@ -84,6 +115,12 @@ function M.setup(channel, paths)
   config.log_level = "error"
   config.log_runtime = false
   config.completions = { lsp = { enabled = false } }
+  -- --syntax regex: keep render-markdown off Markdown buffers. The flag is set before :edit, whose filetype
+  -- detection already attaches the plugin.
+  local ignore = config.ignore
+  config.ignore = function(buf)
+    return M.syntax == "regex" or (ignore ~= nil and ignore(buf) or false)
+  end
   if M.channel then
     config.on = {
       render = function(context)
@@ -97,12 +134,16 @@ function M.setup(channel, paths)
     config.render_modes = true
     config.anti_conceal = { enabled = false }
   end
+  start = lap("setup: render-markdown options", start)
   if paths.icons then
     require("mini.icons").setup()
   end
+  start = lap("setup: icons", start)
   require("render-markdown").setup(config)
   dofile(paths.render_markdown .. "/plugin/render-markdown.lua")
+  start = lap("setup: render-markdown", start)
   M.tune_markdown_queries()
+  lap("setup: query tuning", start)
 end
 
 -- Neovim's Tree-sitter highlighter does per-line work proportional to the number of injected trees, and
@@ -134,42 +175,58 @@ end
 
 -- Highlight a non-Markdown buffer with Tree-sitter when the language has a highlights query,
 -- otherwise with Neovim's regex syntax file for the filetype.
-local function highlight(filetype, lang)
+-- syntax: "auto" uses Tree-sitter when lang has a highlights query, "regex" always uses Vim's syntax files.
+local function highlight(filetype, lang, syntax)
+  local start = hrtime()
   vim.bo.filetype = filetype
-  if has_highlights(lang) then
+  start = lap("open: filetype", start)
+  local treesitter = syntax ~= "regex" and has_highlights(lang)
+  start = lap("open: parser load", start)
+  if treesitter then
     vim.treesitter.start(0, lang)
+    start = lap("open: treesitter start", start)
     -- Parse synchronously, injections included, so the captured screen is fully highlighted.
     vim.treesitter.get_parser(0, lang):parse(true)
+    lap("open: parse", start)
     M.engine = "treesitter"
   else
     vim.cmd("syntax enable")
     vim.bo.syntax = filetype
+    lap("open: regex syntax", start)
     M.engine = "syntax"
   end
 end
 
 -- Edit path and highlight it. spec: {filetype, lang} from mdpreview, or nil to use Neovim's detection with a
--- Markdown fallback.
-local function load(path, spec)
+-- Markdown fallback. syntax: "auto" (default) or "regex"; regex Markdown skips render-markdown.
+local function load(path, spec, syntax)
+  M.syntax = syntax
+  local start = hrtime()
   vim.api.nvim_cmd({ cmd = "edit", args = { path }, magic = { file = false, bar = false }, mods = { silent = true } }, {})
+  start = lap("open: edit", start)
   if spec == nil or spec == vim.NIL then
     local detected = vim.filetype.match({ buf = 0, filename = path })
     spec = { filetype = detected or "markdown", lang = vim.treesitter.language.get_lang(detected or "markdown") }
+    lap("open: filetype detection", start)
   end
   M.filetype = spec.filetype
-  if M.filetype == "markdown" then
+  M.rendered = M.filetype == "markdown" and syntax ~= "regex"
+  if M.rendered then
+    start = hrtime()
     vim.bo.filetype = "markdown"
+    start = lap("open: filetype", start)
     vim.treesitter.start(0, "markdown")
+    lap("open: treesitter start", start)
     M.engine = "render-markdown"
   else
-    highlight(M.filetype, spec.lang or M.filetype)
+    highlight(M.filetype, spec.lang or M.filetype, syntax)
   end
 end
 
-function M.open(path, line, token, spec)
+function M.open(path, line, token, spec, syntax)
   M.token = token
   vim.v.errmsg = ""
-  load(path, spec)
+  load(path, spec, syntax)
   local last = vim.api.nvim_buf_line_count(0)
   assert(line <= last, "Requested line exceeds document length (" .. last .. ")")
   vim.api.nvim_win_set_cursor(0, { line, 0 })
@@ -179,7 +236,8 @@ function M.open(path, line, token, spec)
 end
 
 function M.update(event)
-  if M.filetype == "markdown" then
+  M.update_started = hrtime()
+  if M.rendered then
     require("render-markdown.core.ui").update(
       vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), event, true
     )
@@ -210,6 +268,9 @@ function M.info()
     engine = M.engine,
     extmarks = #vim.api.nvim_buf_get_extmarks(0, namespace, 0, -1, {}),
     normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false }),
+    timings = M.timings,
+    marks = M.marks,
+    callbacks = M.callbacks,
   }
 end
 
@@ -218,8 +279,8 @@ end
 function M.pager(session)
   vim.o.shortmess = vim.o.shortmess .. "IF"
   M.setup(nil, session.paths)
-  load(session.path, session.filetype)
-  if M.filetype == "markdown" then
+  load(session.path, session.filetype, session.syntax)
+  if M.rendered then
     -- render-markdown's update() renders from a scheduled callback, after Neovim has drawn the raw text once.
     -- Run its updater directly so the first frame is rendered; fall back to update() if that internal changes.
     local ui = require("render-markdown.core.ui")

@@ -1,7 +1,12 @@
 #!/usr/bin/python3
 """Isolated, one-shot Neovim screen-to-ANSI renderer for Markdown and the filetypes in filetypes.json."""
 
+import time
+
+STARTED = time.monotonic_ns()  # Before the other imports, so --timings can report their cost.
+
 import argparse
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -12,9 +17,9 @@ import signal
 import subprocess
 import sys
 import tempfile
-import time
 
 import msgpack
+import resource
 
 import config
 import filetypes
@@ -35,6 +40,75 @@ class TooLarge(PreviewError):
 
 class Cancelled(Exception):
   pass
+
+
+class Timings:
+  """Phase durations for --timings. Phases are kept in the order first recorded; repeats add up.
+
+  Names with ": " are sub-phases of the part before it. Neovim reports its own phases (profile.lua) the same way.
+  """
+
+  def __init__(self):
+    self.phases = {}
+    self.facts = {}
+
+  def add(self, name, milliseconds):
+    self.phases[name] = self.phases.get(name, 0.0) + milliseconds
+
+  def since(self, name, start):
+    """Add the time since start (time.monotonic_ns()) to name; return now."""
+    now = time.monotonic_ns()
+    self.add(name, (now - start) / 1e6)
+    return now
+
+  @contextlib.contextmanager
+  def phase(self, name):
+    start = time.monotonic_ns()
+    try:
+      yield
+    finally:
+      self.since(name, start)
+
+  def ordered(self):
+    """Phases in first-recorded order, each sub-phase directly after its parent."""
+    names = list(self.phases)
+    parents = [name for name in names if ": " not in name]
+    order = []
+    for parent in parents:
+      order.append(parent)
+      order += [name for name in names if name.startswith(parent + ": ")]
+    order += [name for name in names if name not in order]
+    return [name for name in order if name != RPC_PHASE] + [name for name in order if name == RPC_PHASE]
+
+  def report(self):
+    """The phases, facts, total, and peak resident memory, as a JSON-ready dict."""
+    children = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    return {
+      **self.facts,
+      "total_ms": round((time.monotonic_ns() - STARTED) / 1e6, 2),
+      "peak_rss_kb": {"python": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "children": children},
+      "phases": {name: round(self.phases[name], 2) for name in self.ordered()},
+    }
+
+  def table(self):
+    report = self.report()
+    facts = ", ".join(f"{key} {report[key]}" for key in
+                      ["filetype", "engine", "grid", "resizes", "ready_callbacks", "redraw_bytes"]
+                      if key in report)
+    lines = [f"mdpreview timings (ms){': ' + facts if facts else ''}"]
+    for name, value in report["phases"].items():
+      parent, _, child = name.partition(": ")
+      label = f"  {child}" if child else parent
+      lines.append(f"  {label:<40} {value:9.1f}")
+    lines.append(f"  {'total (since the first import)':<40} {report['total_ms']:9.1f}")
+    rss = report["peak_rss_kb"]
+    lines.append(f"  peak RSS: python {rss['python'] / 1024:.0f} MiB, largest child (nvim or bat) "
+                 f"{rss['children'] / 1024:.0f} MiB")
+    lines.append(f"  {RPC_PHASE!r} is the Python share of the Neovim waits above, not extra time")
+    return "\n".join(lines) + "\n"
+
+
+RPC_PHASE = "rpc handling (python)"
 
 
 def find_paths(settings=None):
@@ -107,7 +181,9 @@ def nvim_command(executable, *extra):
 
 
 class Renderer:
-  def __init__(self, executable, paths, temporary, width, height, timeout):
+  def __init__(self, executable, paths, temporary, width, height, timeout, timings=None, syntax="auto"):
+    self.timings = timings or Timings()
+    self.syntax = syntax
     self.process = None
     self.errors = []
     self.stderr = tempfile.TemporaryFile(dir=temporary)
@@ -125,15 +201,19 @@ class Renderer:
     env = isolated_environment(temporary)
     env.update(TERM="xterm-256color", COLORTERM="truecolor")
     try:
+      self.spawned = time.monotonic_ns()
       self.process = subprocess.Popen(
         nvim_command(executable, "--embed"),
         cwd=temporary, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=self.stderr, start_new_session=True,
       )
+      # --embed answers RPC at once but sources startup files only after nvim_ui_attach, so Neovim's startup
+      # finishes inside the setup request; record() splits this phase with Neovim's own marks.
       channel = self.request("nvim_get_api_info")[0]
       self.request("nvim_ui_attach", width, height,
                    {"rgb": True, "ext_linegrid": True, "ext_messages": True})
       self.request("nvim_exec_lua", "mdpreview.setup(...)", [channel, paths])
+      self.timings.since("startup", self.spawned)
     except BaseException:
       self.close()
       raise
@@ -159,7 +239,9 @@ class Renderer:
       if budgeted:
         raise TooLarge("complete output took longer than the budget" + detail)
       raise PreviewError("Neovim did not finish rendering before the timeout" + detail)
+    received = time.monotonic_ns()
     data = os.read(self.process.stdout.fileno(), 65536)
+    self.timings.facts["redraw_bytes"] = self.timings.facts.get("redraw_bytes", 0) + len(data)
     if not data:
       self.stderr.seek(0)
       diagnostic = self.stderr.read().decode(errors="replace")[-2000:]
@@ -178,6 +260,7 @@ class Renderer:
           for event in arguments:
             for args in event[1:]:
               self.event(event[0], args)
+    self.timings.since(RPC_PHASE, received)
 
   def event(self, name, args):
     if name == "grid_resize" and args[0] == 1:
@@ -219,7 +302,8 @@ class Renderer:
                   for item in self.ready):
       self.pump(deadline)
     # notify_ready redrew just before signalling, and grid events precede the notification on the channel.
-    info = self.request("nvim_exec_lua", "return mdpreview.info()", [])
+    with self.timings.phase("frames: info"):
+      info = self.request("nvim_exec_lua", "return mdpreview.info()", [])
     # Plugins may leave v:errmsg set after a caught API error. Unhandled RPC/UI errors are authoritative.
     if self.errors:
       raise PreviewError("; ".join(self.errors))
@@ -228,8 +312,13 @@ class Renderer:
   def render(self, path, width, height, start_line=1, all_rows=False, filetype=None, budget=None):
     self.budget_deadline = time.monotonic() + budget if all_rows and budget else None
     self.token += 1
-    self.request("nvim_exec_lua", "return mdpreview.open(...)", [str(path), start_line, self.token, filetype])
-    info = self.wait_ready(self.token, width, height)
+    with self.timings.phase("open"):
+      self.request("nvim_exec_lua", "return mdpreview.open(...)",
+                   [str(path), start_line, self.token, filetype, self.syntax])
+    with self.timings.phase("frames: first"):
+      info = self.wait_ready(self.token, width, height)
+    resized = time.monotonic_ns()
+    resizes = 0
     if all_rows:
       for _ in range(8):
         if info["total_height"] <= height and info["bottom_line"] == info["buffer_lines"]:
@@ -237,6 +326,7 @@ class Renderer:
         if info["total_height"] > MAX_ROWS or height == MAX_ROWS:
           raise TooLarge(f"Full output exceeds {MAX_ROWS} screen rows; use --lines for a viewport")
         height = min(MAX_ROWS, max(height * 2, info["total_height"] + 4))
+        resizes += 1
         self.token += 1
         self.request("nvim_exec_lua", "mdpreview.token = ...", [self.token])
         self.request("nvim_ui_try_resize", width, height)
@@ -244,8 +334,34 @@ class Renderer:
         info = self.wait_ready(self.token, width, height)
       else:
         raise PreviewError("Document layout did not settle after resizing")
+    if resizes:
+      self.timings.since("frames: resizes", resized)
+    self.record(info, width, height, resizes)
     count = min(height, info["remaining_height"])
-    return self.ansi(count), info
+    with self.timings.phase("ansi encode"):
+      output = self.ansi(count)
+    return output, info
+
+  def record(self, info, width, height, resizes):
+    """Copy Neovim's own phase timings and the render facts into self.timings."""
+    facts = self.timings.facts
+    facts.update(filetype=info["filetype"], engine=info["engine"], grid=f"{width}x{height}",
+                 resizes=facts.get("resizes", 0) + resizes, ready_callbacks=info.get("callbacks"))
+    phases = self.timings.phases
+    phases["frames"] = phases.get("frames: first", 0) + phases.get("frames: resizes", 0)
+    marks = info.get("marks") or {}
+    if "startup" in phases and {"profile", "setup"} <= marks.keys():
+      # Both clocks are CLOCK_MONOTONIC on Linux, so Neovim's marks place on mdpreview's timeline.
+      phases["startup: neovim before profile.lua"] = (marks["profile"] - self.spawned) / 1e6
+      phases["startup: neovim profile.lua to setup"] = (marks["setup"] - marks["profile"]) / 1e6
+    # Neovim's figures are totals for its process, so they replace rather than add. render and redraw run once
+    # per frame.
+    for name, value in info.get("timings") or []:
+      if name.startswith("setup: "):
+        name = "startup: " + name
+      elif ": " not in name:
+        name = f"frames: neovim {name} (all frames)"
+      phases[name] = value
 
   def ansi(self, rows):
     output = []
@@ -289,6 +405,10 @@ class Renderer:
     return "".join(output).encode("utf-8")
 
   def close(self):
+    with self.timings.phase("close"):
+      self._close()
+
+  def _close(self):
     if self.process and self.process.poll() is None:
       try:
         self.process.stdin.write(msgpack.packb([2, "nvim_command", ["qa!"]], use_bin_type=True))
@@ -373,10 +493,11 @@ def page(output, command):
     signal.signal(signal.SIGINT, previous)
 
 
-def page_nvim(executable, paths, temporary, path, filetype):
+def page_nvim(executable, paths, temporary, path, filetype, syntax):
   """Open the document in a read-only Neovim on this terminal (q quits); return Neovim's exit status."""
   env = isolated_environment(temporary)
-  env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype})
+  env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype,
+                                           "syntax": syntax})
   command = nvim_command(executable, "-c", "lua mdpreview.pager(vim.json.decode(vim.env.MDPREVIEW_SESSION))")
   # Keys come from the terminal even when the document came from stdin.
   keyboard = None if sys.stdin.isatty() else open("/dev/tty", "rb")
@@ -407,6 +528,8 @@ def positive(value):
 
 
 def main():
+  timings = Timings()
+  timings.since("python imports", STARTED)
   parser = argparse.ArgumentParser(description=__doc__)
   if sys.argv[1:] == ["--check"]:
     return check()
@@ -431,13 +554,37 @@ def main():
   parser.add_argument("--check", action="store_true",
                       help="Print the resolved configuration and dependency versions, then exit")
   parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
+  parser.add_argument("--syntax", choices=["auto", "regex"], default="auto",
+                      help="auto: Tree-sitter when the language has a highlights query, else Vim's regex syntax; "
+                      "regex: always Vim's regex syntax (Markdown then skips render-markdown)")
+  report = parser.add_mutually_exclusive_group()
+  report.add_argument("--timings", dest="timings", action="store_const", const="table",
+                      help="After rendering, print per-phase timings and peak memory to stderr")
+  report.add_argument("--timings-json", dest="timings", action="store_const", const="json",
+                      help="Like --timings, as one JSON object")
   args = parser.parse_args()
+  try:
+    return run(args, timings)
+  finally:
+    if args.timings:
+      emit_timings(args.timings, timings)
+
+
+def emit_timings(form, timings):
+  text = json.dumps(timings.report()) + "\n" if form == "json" else timings.table()
+  sys.stderr.write(text)
+  sys.stderr.flush()
+
+
+def run(args, timings):
+  start = time.monotonic_ns()
   if args.check:
     return check()
   try:
     settings = config.load()[0]
   except config.ConfigError as error:
     raise PreviewError(str(error)) from error
+  start = timings.since("config", start)
   if args.nvim:
     settings["nvim"] = args.nvim
   pager = resolve_pager(args.pager or settings["pager"])
@@ -454,6 +601,7 @@ def main():
       raise PreviewError("--paging=always pages the complete document; remove --lines and --start-line")
     all_rows = True
   paths = find_paths(settings)
+  start = timings.since("config", start)
   with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
     if str(args.file) == "-":
       data = sys.stdin.buffer.read(MAX_BYTES + 1)
@@ -466,12 +614,13 @@ def main():
     if path.stat().st_size > MAX_BYTES:
       raise PreviewError("Prototype input limit is 10 MiB")
     filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
+    timings.since("input and filetype", start)
     if pager == "nvim" and wants_pager(args.paging, all_rows) and sys.stdout.isatty():
       restrict_writes()
       if args.paging == "auto":
         # Probe with one screen: a document that fits is printed as is, a taller one opens the pager.
         lines = shutil.get_terminal_size().lines
-        renderer = Renderer(settings["nvim"], paths, temporary, width, lines, args.timeout)
+        renderer = Renderer(settings["nvim"], paths, temporary, width, lines, args.timeout, timings, args.syntax)
         try:
           output, info = renderer.render(path, width, lines, 1, False, filetype)
         finally:
@@ -480,7 +629,8 @@ def main():
           sys.stdout.buffer.write(output)
           sys.stdout.buffer.flush()
           return 0
-      return page_nvim(settings["nvim"], paths, temporary, path, filetype)
+      timings.facts["pager"] = "nvim (not timed)"
+      return page_nvim(settings["nvim"], paths, temporary, path, filetype, args.syntax)
     if all_rows:
       # Start near the final size: every full redraw costs rows x injected trees, and resizing a short grid to
       # fit adds one. Wrapping and virtual rows can still need a resize.
@@ -488,7 +638,7 @@ def main():
         source_rows = sum(chunk.count(b"\n") for chunk in iter(lambda: handle.read(1 << 16), b"")) + 1
       height = max(height, min(MAX_ROWS, source_rows + 4))
     restrict_writes()
-    renderer = Renderer(settings["nvim"], paths, temporary, width, height, args.timeout)
+    renderer = Renderer(settings["nvim"], paths, temporary, width, height, args.timeout, timings, args.syntax)
     try:
       output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype, args.budget)
     except TooLarge as error:
@@ -496,7 +646,9 @@ def main():
         raise
       renderer.close()
       print(f"mdpreview: {error}; showing bat output instead (see --budget, --fallback)", file=sys.stderr)
-      output = fallback_bat(path, width, (filetype or {}).get("filetype"))
+      with timings.phase("bat fallback"):
+        output = fallback_bat(path, width, (filetype or {}).get("filetype"))
+      timings.facts["engine"] = "bat fallback"
     finally:
       renderer.close()
   if should_page(args.paging, all_rows, output):
@@ -505,8 +657,9 @@ def main():
       sys.stdout.buffer.flush()
       return 0
     return page(output, pager)
-  sys.stdout.buffer.write(output)
-  sys.stdout.buffer.flush()
+  with timings.phase("write output"):
+    sys.stdout.buffer.write(output)
+    sys.stdout.buffer.flush()
   return 0
 
 

@@ -80,17 +80,31 @@ Reviewed: 2026-10-31
 
 - [x] **Track Markdown benchmark averages.** (p2) [perf] `benchmarks/run` records small/medium/large/code samples
   in `benchmarks/history.tsv` and updates the SYNTAX.md table; run it after every change.
-- [ ] **Benchmark render time per filetype.** (p2) [perf] Time every `filetypes.json` entry with hyperfine (fixture
+- [x] **Benchmark render time per filetype.** (p2) [perf] Time every `filetypes.json` entry with hyperfine (fixture
   plus a larger realistic file each): Tree-sitter vs regex syntax, `--all` vs a viewport, against bat on the
   same file, and the dispatch overhead. Rough one-off timings on 2026-10-31 at 80 columns: most filetypes
   100-350 ms, markdown about 530 ms, astro about 710 ms, cuda about 950 ms (likely parser or injection
   loading). Record results in a doc and add a check that flags regressions. Also: a plain 5,000-line list
   takes over 8 s at the 4,096-row grid even without tables, so tall grids are slow in their own right.
+  Done: `benchmarks/filetypes` (`--check` flags regressions), results in docs/PERFORMANCE.md.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
   `grid_scroll`, O(rows x columns) per scroll; at 4,096 rows this adds up. Copy only the scrolled region.
-- [ ] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.
+- [x] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.
+  `benchmarks/run` records an fzf mode, startup and peak RSS of Neovim and Python.
 - [ ] (p3) [perf] Separate warm-process results from fresh-process measurements and rendered-output cache hits.
-- [ ] (p2) [perf] Profile before optimizing; identify theme loading, parser loading, rendering, and RPC costs separately.
+- [x] (p2) [perf] Profile before optimizing; identify theme loading, parser loading, rendering, and RPC costs separately.
+  `--timings`/`--timings-json`; findings in docs/PERFORMANCE.md.
+- [ ] **Redraw once per Markdown frame.** (p2) [perf] render-markdown calls `on.render` three times per frame and
+  each schedules a full `redraw` (`ready_callbacks` in `--timings`); redraw is 1.2 s of large.md's 2 s. Trace
+  which events fire them, then notify once per token after the explicit update, keeping the tail and viewport
+  tests green.
+- [ ] **Injected-language loading is unattributed.** (p3) [perf] astro spends ~140 ms in `parse` loading the
+  TypeScript and CSS parsers and queries; time `language.add`/query loads for injections as their own phase.
+- [ ] **cuda query compilation.** (p3) [perf] `vim.treesitter.start` takes ~390 ms for cuda (inherited cpp/c
+  queries) against ~130 ms total with `--syntax regex`. Consider a per-filetype `syntax` key in filetypes.json, or
+  a trimmed query.
+- [ ] (p3) [perf] Python imports take ~40 ms of the ~75 ms startup (argparse, tomllib); lazy-import config
+  parsing and measure.
 - [ ] (p3) [perf] Trial an optional persistent Neovim worker if startup dominates, with cancellation and cleanup tests.
 - [ ] (p3) [perf] Add caching only if measurements justify it; include viewport, file content, theme, configuration, and parser versions.
 

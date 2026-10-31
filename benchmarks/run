@@ -1,64 +1,68 @@
 #!/usr/bin/python3
 """Benchmark Markdown rendering, append the results to history.tsv, and update the table in SYNTAX.md.
 
-Waits until the 1-minute load average is low enough, then renders each sample several times in two modes
-(complete output and a 40-row viewport) and records the median. The SYNTAX.md table compares the new medians
-with the average of all earlier runs.
+Waits until the 1-minute load average is low enough, then renders each sample several times in three modes
+(complete output, a 40-row viewport, and fzf's preview environment) and records the median wall time, the
+median startup time (until Neovim is set up, from mdpreview --timings-json) and the median peak RSS of Neovim
+and of mdpreview itself. The SYNTAX.md table compares the new wall-time medians with the average of all
+earlier runs.
 """
 
 import argparse
-import datetime
+import json
 import os
-from pathlib import Path
 import statistics
 import subprocess
 import sys
 import time
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+from common import HERE, ROOT, load1, metadata, wait_for_load
 HISTORY = HERE / "history.tsv"
 SYNTAX = ROOT / "SYNTAX.md"
 SAMPLES = ["small", "medium", "large", "code"]
+COLUMNS, LINES = 100, 40
+# fzf: no size flags; mdpreview takes the size from fzf's variables and emits one viewport, as in a preview.
 MODES = {
-  "complete": ["--all", "--budget", "0"],
-  "viewport": ["--lines", "40"],
+  "complete": (["--all", "--budget", "0"], {}),
+  "viewport": (["--lines", str(LINES)], {}),
+  "fzf": ([], {"FZF_PREVIEW_COLUMNS": str(COLUMNS), "FZF_PREVIEW_LINES": str(LINES)}),
 }
-FIELDS = ["date", "version", "commit", "sample", "mode", "median_ms", "min_ms", "runs", "load1", "nvim"]
+# Phases up to a ready Neovim (mdpreview --timings-json). Python's own interpreter start precedes them.
+STARTUP_PHASES = ["python imports", "config", "input and filetype", "startup"]
+FIELDS = ["date", "version", "commit", "sample", "mode", "median_ms", "min_ms", "runs", "load1", "nvim",
+          "startup_ms", "nvim_rss_mib", "python_rss_mib"]
 START, END = "<!-- benchmark:start -->", "<!-- benchmark:end -->"
 
 
-def load1():
-  return float(Path("/proc/loadavg").read_text().split()[0])
-
-
-def wait_for_load(limit, max_wait, interval):
-  deadline = time.monotonic() + max_wait
-  while (current := load1()) > limit:
-    if time.monotonic() >= deadline:
-      return False
-    print(f"load {current:.2f} > {limit:.2f}; waiting {interval:.0f}s", file=sys.stderr, flush=True)
-    time.sleep(interval)
-  return True
-
-
-def measure(sample, mode, runs, columns, timeout):
-  command = [str(ROOT / "mdpreview"), "--paging=never", "--columns", str(columns), "--timeout", str(timeout),
-             *MODES[mode], str(HERE / f"{sample}.md")]
-  times = []
+def measure(sample, mode, runs, timeout):
+  """Median and minimum wall ms, median startup ms, and median peak RSS (MiB) of Neovim and of mdpreview."""
+  flags, variables = MODES[mode]
+  size = [] if variables else ["--columns", str(COLUMNS)]
+  command = [str(ROOT / "mdpreview"), "--paging=never", *size, "--timeout", str(timeout), "--timings-json",
+             *flags, str(HERE / f"{sample}.md")]
+  environment = {name: value for name, value in os.environ.items()
+                 if name not in ("FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES", "NVIM")}
+  environment.update(variables)
+  times, startups, nvim_rss, python_rss = [], [], [], []
   for index in range(runs + 1):  # The first run warms the page cache and is discarded.
     start = time.perf_counter()
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
     elapsed = (time.perf_counter() - start) * 1000
-    if result.returncode != 0 or not result.stdout or result.stderr:
-      raise SystemExit(f"benchmark: {sample}/{mode} failed: {result.stderr.decode(errors='replace').strip()}")
+    stderr = result.stderr.decode(errors="replace").strip()
+    try:
+      report = json.loads(stderr)  # Anything else on stderr (a warning, a fallback notice) fails the run.
+    except ValueError:
+      report = None
+    if result.returncode != 0 or not result.stdout or report is None:
+      raise SystemExit(f"benchmark: {sample}/{mode} failed: {stderr}")
     if index:
       times.append(elapsed)
-  return statistics.median(times), min(times)
-
-
-def git(*arguments):
-  return subprocess.run(["git", "-C", str(ROOT), *arguments], capture_output=True, text=True).stdout.strip()
+      startups.append(sum(report["phases"].get(name, 0) for name in STARTUP_PHASES))
+      nvim_rss.append(report["peak_rss_kb"]["children"] / 1024)
+      python_rss.append(report["peak_rss_kb"]["python"] / 1024)
+  return {"median_ms": round(statistics.median(times)), "min_ms": round(min(times)),
+          "startup_ms": round(statistics.median(startups)), "nvim_rss_mib": round(statistics.median(nvim_rss)),
+          "python_rss_mib": round(statistics.median(python_rss))}
 
 
 def read_history():
@@ -69,10 +73,14 @@ def read_history():
 
 
 def append_history(rows):
-  new = not HISTORY.exists()
+  header = "\t".join(FIELDS)
+  if HISTORY.exists():
+    lines = HISTORY.read_text().splitlines()
+    if lines and lines[0] != header:  # New columns are appended; earlier rows simply lack them.
+      HISTORY.write_text("\n".join([header, *lines[1:]]) + "\n")
+  else:
+    HISTORY.write_text(header + "\n")
   with open(HISTORY, "a", encoding="utf-8") as handle:
-    if new:
-      handle.write("\t".join(FIELDS) + "\n")
     for row in rows:
       handle.write("\t".join(str(row[field]) for field in FIELDS) + "\n")
 
@@ -88,12 +96,16 @@ def table(rows, previous):
     START,
     "",
     f"Latest run: {first['date']}, version {first['version']} ({first['commit']}), load {first['load1']}, "
-    f"{first['nvim']}. Median of {first['runs']} runs after one warm-up, 100 columns; complete output uses "
-    "`--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in "
+    f"{first['nvim']}. Median of {first['runs']} runs after one warm-up, {COLUMNS} columns; complete output "
+    f"uses `--all --budget 0`, viewport `--lines {LINES}`, fzf sets `FZF_PREVIEW_COLUMNS={COLUMNS}` and "
+    f"`FZF_PREVIEW_LINES={LINES}` (the time to the first usable fzf preview). Startup is the time until Neovim "
+    "is set up (`--timings`), excluding Python's interpreter start; RSS is the peak of Neovim and of "
+    "mdpreview's Python. Averages compare wall time with all earlier runs in "
     "[benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.",
     "",
-    "| Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average |",
-    "|---|---:|---:|---|---:|---:|---:|---:|",
+    "| Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average | "
+    "Startup (ms) | Neovim RSS (MiB) | Python RSS (MiB) |",
+    "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
   ]
   for row in rows:
     lines, blocks = sample_stats(row["sample"])
@@ -106,7 +118,8 @@ def table(rows, previous):
     else:
       change, average_text = "first run", "-"
     out.append(f"| [{row['sample']}](benchmarks/{row['sample']}.md) | {lines} | {blocks} | {row['mode']} | "
-               f"{row['median_ms']:.0f} | {average_text} | {len(earlier)} | {change} |")
+               f"{row['median_ms']:.0f} | {average_text} | {len(earlier)} | {change} | {row['startup_ms']} | "
+               f"{row['nvim_rss_mib']} | {row['python_rss_mib']} |")
   out += ["", END]
   return "\n".join(out)
 
@@ -134,21 +147,14 @@ def main():
   args = parser.parse_args()
   if not wait_for_load(args.max_load, args.max_wait, args.interval):
     raise SystemExit(f"benchmark: load stayed above {args.max_load:.2f} for {args.max_wait:.0f}s; nothing recorded")
-  dirty = "-dirty" if git("status", "--porcelain", "--untracked-files=no") else ""
-  base = {
-    "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-    "version": (ROOT / "VERSION").read_text().strip(),
-    "commit": git("rev-parse", "--short", "HEAD") + dirty,
-    "runs": args.runs,
-    "load1": f"{load1():.2f}",
-    "nvim": subprocess.run(["nvim", "--version"], capture_output=True, text=True).stdout.splitlines()[0],
-  }
+  base = dict(metadata(), runs=args.runs)
   rows = []
   for sample in SAMPLES:
     for mode in MODES:
-      median, fastest = measure(sample, mode, args.runs, 100, args.timeout)
-      rows.append(dict(base, sample=sample, mode=mode, median_ms=round(median), min_ms=round(fastest)))
-      print(f"{sample:7} {mode:9} {median:7.0f} ms", file=sys.stderr, flush=True)
+      result = measure(sample, mode, args.runs, args.timeout)
+      rows.append(dict(base, sample=sample, mode=mode, **result))
+      print(f"{sample:7} {mode:9} {result['median_ms']:7d} ms  startup {result['startup_ms']:4d} ms  "
+            f"nvim {result['nvim_rss_mib']:4d} MiB", file=sys.stderr, flush=True)
   previous = read_history()
   block = table(rows, previous)
   if args.dry_run:

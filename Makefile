@@ -5,7 +5,7 @@ BINDIR ?= $(PREFIX)/bin
 COMMANDS := mdpreview mdpreview-dispatch
 PYTHON := /usr/bin/python3
 
-.PHONY: help install uninstall check check-dev deps test bench dispatch
+.PHONY: help install uninstall check check-dev deps test bench bench-filetypes dispatch
 
 help:
 	@echo "make install     link $(COMMANDS) into $(BINDIR) (PREFIX=$(PREFIX))"
@@ -15,6 +15,7 @@ help:
 	@echo "make deps        install the Python dependency for the current user (pip)"
 	@echo "make test        run the bats test suite"
 	@echo "make bench       run benchmarks/run (records history, updates SYNTAX.md)"
+	@echo "make bench-filetypes  run benchmarks/filetypes (records the baseline, updates docs/PERFORMANCE.md)"
 	@echo "make dispatch    regenerate mdpreview-dispatch from filetypes.json and bat"
 
 # Links, not copies: mdpreview finds profile.lua, readonly.py and queries/ next to its real path.
@@ -45,7 +46,7 @@ check:
 
 check-dev:
 	@status=0; \
-	for tool in bats script fzf bat less git; do \
+	for tool in bats script fzf bat less git hyperfine; do \
 	  if command -v $$tool >/dev/null 2>&1; then printf '  %-6s %s\n' $$tool "$$($$tool --version 2>&1 | head -1)"; \
 	  else printf '  %-6s missing\n' $$tool; status=1; fi; \
 	done; \
@@ -60,6 +61,9 @@ test:
 
 bench:
 	benchmarks/run
+
+bench-filetypes:
+	benchmarks/filetypes
 
 dispatch:
 	./gen-dispatch

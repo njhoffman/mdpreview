@@ -1,0 +1,260 @@
+#!/usr/bin/python3
+"""Benchmark render time for every filetypes.json entry, and flag regressions against the recorded baseline.
+
+Each filetype is measured on its test fixture and on a larger file made by repeating that fixture to about
+--large-lines lines, with hyperfine: complete output (--all), complete output with Vim's regex syntax
+(--syntax regex, only where the filetype normally uses Tree-sitter), a viewport (--lines 40), bat on the same
+file, and mdpreview-dispatch (whose overhead is dispatch minus complete). One extra mdpreview --timings-json run
+per file splits the time into startup, query compilation (vim.treesitter.start), parsing, and frames.
+
+Results go to benchmarks/filetypes.tsv (the baseline) and the table in docs/PERFORMANCE.md. With --check
+nothing is recorded; the exit status is 1 when a filetype got slower than the baseline by both --threshold
+percent and --min-ms. This takes several minutes for all filetypes; --only and --quick shorten it.
+"""
+
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+from common import HERE, ROOT, metadata, wait_for_load
+
+sys.path.insert(0, str(ROOT))
+import filetypes  # noqa: E402  (the checkout's filetypes.json loader)
+
+FIXTURES = ROOT / "tests" / "fixtures"
+BASELINE = HERE / "filetypes.tsv"
+DOC = ROOT / "docs" / "PERFORMANCE.md"
+START, END = "<!-- filetypes:start -->", "<!-- filetypes:end -->"
+COLUMNS, LINES = 80, 40
+VARIANTS = ["all", "regex", "viewport", "bat", "dispatch"]
+CHECKED = ["all", "regex", "viewport", "dispatch"]  # bat is the reference, not ours to regress
+PHASES = {"startup_ms": ["python imports", "config", "input and filetype", "startup"],
+          "query_ms": ["open: treesitter start"], "parse_ms": ["open: parse", "open: regex syntax"],
+          "frames_ms": ["frames"]}
+FIELDS = ["filetype", "size", "lines", "engine", *[f"{name}_ms" for name in VARIANTS], *PHASES]
+
+
+def fixture(filetype):
+  """The file render.bats uses for filetype, or None."""
+  directory = FIXTURES / filetype
+  files = sorted(path for path in directory.rglob("*")
+                 if path.is_file() and path.name != "Chart.yaml" and not path.name.startswith("plain."))
+  return files[0] if files else None
+
+
+def tile(source, temporary, lines):
+  """Copy source's fixture directory (helm needs Chart.yaml, i3 a path) and repeat source to about lines."""
+  directory = FIXTURES / source.relative_to(FIXTURES).parts[0]
+  copy = Path(temporary) / directory.name
+  shutil.copytree(directory, copy)
+  target = copy / source.relative_to(directory)
+  text = source.read_text()
+  if not text.endswith("\n"):
+    text += "\n"
+  repeats = max(1, math.ceil(lines / max(1, text.count("\n"))))
+  target.write_text(text * repeats)
+  return target
+
+
+def report(path, filetype, extra=()):
+  command = [str(ROOT / "mdpreview"), "--paging=never", "--columns", str(COLUMNS), "--all", "--budget", "0",
+             "--timings-json", "--filetype", filetype, *extra, "--", str(path)]
+  result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+  if result.returncode:
+    raise SystemExit(f"filetypes: {filetype} {path.name} failed: {result.stderr.strip()}")
+  return json.loads(result.stderr.strip().splitlines()[-1])
+
+
+def commands(path, filetype, engine):
+  quoted = shlex.quote(str(path))
+  mdpreview = f"{shlex.quote(str(ROOT / 'mdpreview'))} --paging=never --columns {COLUMNS} --filetype {filetype}"
+  result = {
+    "all": f"{mdpreview} --all --budget 0 -- {quoted}",
+    "regex": f"{mdpreview} --all --budget 0 --syntax regex -- {quoted}",
+    "viewport": f"{mdpreview} --lines {LINES} -- {quoted}",
+    "bat": f"bat --color=always --paging=never --style=plain --terminal-width={COLUMNS} -- {quoted}",
+    "dispatch": f"{shlex.quote(str(ROOT / 'mdpreview-dispatch'))} {quoted}",
+  }
+  if engine == "syntax":
+    del result["regex"]  # Already Vim's regex syntax
+  return result
+
+
+def hyperfine(named, runs, temporary):
+  """Median milliseconds per name, from one hyperfine run over all the commands."""
+  export = Path(temporary) / "hyperfine.json"
+  arguments = ["hyperfine", "--shell=none", "--style=none", "--warmup", "1", "--runs", str(runs),
+               "--export-json", str(export)]
+  for name, command in named.items():
+    arguments += ["--command-name", name, command]
+  # dispatch takes the width from the terminal, which hyperfine does not give it: COLUMNS stands in.
+  environment = dict(os.environ, COLUMNS=str(COLUMNS), MDPREVIEW=str(ROOT / "mdpreview"))
+  for name in ("NVIM", "FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES"):
+    environment.pop(name, None)
+  # hyperfine's outlier warnings go to stderr on most runs of this noisy machine; show them only on failure.
+  result = subprocess.run(arguments, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=environment)
+  if result.returncode:
+    raise SystemExit(f"filetypes: hyperfine failed: {result.stderr.strip()}")
+  results = json.loads(export.read_text())["results"]
+  return {item["command"]: item["median"] * 1000 for item in results}
+
+
+def measure(filetype, path, size, runs, temporary):
+  timings = report(path, filetype)
+  medians = hyperfine(commands(path, filetype, timings["engine"]), runs, temporary)
+  row = {"filetype": filetype, "size": size, "lines": path.read_text().count("\n"), "engine": timings["engine"]}
+  for name in VARIANTS:
+    row[f"{name}_ms"] = round(medians[name]) if name in medians else ""
+  for key, names in PHASES.items():
+    row[key] = round(sum(timings["phases"].get(name, 0) for name in names))
+  return row
+
+
+def read_baseline():
+  if not BASELINE.exists():
+    return {}, ""
+  lines = BASELINE.read_text().splitlines()
+  comment = lines[0][2:] if lines and lines[0].startswith("# ") else ""
+  body = [line for line in lines if not line.startswith("# ")]
+  header = body[0].split("\t")
+  rows = [dict(zip(header, line.split("\t"))) for line in body[1:] if line]
+  return {(row["filetype"], row["size"]): row for row in rows}, comment
+
+
+def write_baseline(rows, info, previous):
+  """Replace measured filetypes in the baseline, keep the others (a --only run updates only its own)."""
+  merged = dict(previous)
+  merged.update({(row["filetype"], row["size"]): row for row in rows})
+  order = [entry["filetype"] for entry in filetypes.load()]
+  keys = sorted(merged, key=lambda key: (order.index(key[0]) if key[0] in order else len(order), key[1]))
+  lines = [f"# {describe(info)}", "\t".join(FIELDS)]
+  lines += ["\t".join(str(merged[key].get(field, "")) for field in FIELDS) for key in keys]
+  BASELINE.write_text("\n".join(lines) + "\n")
+  return [merged[key] for key in keys]
+
+
+def describe(info):
+  return (f"{info['date']}, version {info['version']} ({info['commit']}), load {info['load1']}, {info['nvim']}, "
+          f"{info['runs']} runs per command")
+
+
+def regressions(rows, baseline, threshold, minimum):
+  found = []
+  for row in rows:
+    base = baseline.get((row["filetype"], row["size"]))
+    if not base:
+      continue
+    for name in CHECKED:
+      new, old = row.get(f"{name}_ms"), base.get(f"{name}_ms")
+      if new in ("", None) or old in ("", None):
+        continue
+      new, old = float(new), float(old)
+      if new > old * (1 + threshold / 100) and new - old > minimum:
+        found.append(f"{row['filetype']} {row['size']} {name}: {old:.0f} -> {new:.0f} ms "
+                     f"({(new - old) / old * 100:+.0f}%)")
+  return found
+
+
+def cell(value):
+  return "-" if value in ("", None) else str(value)
+
+
+def table(rows, comment):
+  by = {(row["filetype"], row["size"]): row for row in rows}
+  out = [START, "", f"Recorded {comment}. {COLUMNS} columns, medians from hyperfine; regenerate with "
+         "`benchmarks/filetypes`. Fixture: the file in `tests/fixtures/<filetype>`; large: that file repeated. "
+         "Overhead is dispatch minus complete on the fixture. Query is `vim.treesitter.start` (query "
+         "compilation), parse is the synchronous parse or the regex syntax load, frames is render and redraw, "
+         "all from one `--timings-json` run of the large file.", "",
+         "| Filetype | Engine | Fixture (ms) | Large lines | Large (ms) | Large regex (ms) | Large viewport (ms) "
+         "| bat large (ms) | Dispatch overhead (ms) | Startup (ms) | Query (ms) | Parse (ms) | Frames (ms) |",
+         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+  for entry in filetypes.load():
+    name = entry["filetype"]
+    small, large = by.get((name, "fixture")), by.get((name, "large"))
+    if not small and not large:
+      continue
+    small, large = small or {}, large or {}
+    overhead = ""
+    if small.get("dispatch_ms") not in ("", None) and small.get("all_ms") not in ("", None):
+      overhead = round(float(small["dispatch_ms"]) - float(small["all_ms"]))
+    out.append("| " + " | ".join([name, cell(large.get("engine") or small.get("engine")), cell(small.get("all_ms")),
+               cell(large.get("lines")), cell(large.get("all_ms")), cell(large.get("regex_ms")),
+               cell(large.get("viewport_ms")), cell(large.get("bat_ms")), cell(overhead),
+               cell(large.get("startup_ms")), cell(large.get("query_ms")), cell(large.get("parse_ms")),
+               cell(large.get("frames_ms"))]) + " |")
+  out += ["", END]
+  return "\n".join(out)
+
+
+def update_doc(block):
+  text = DOC.read_text() if DOC.exists() else "# Performance\n\n## Render time per filetype\n\n" + START + END + "\n"
+  if START not in text or END not in text:
+    text += "\n## Render time per filetype\n\n" + START + END + "\n"
+  DOC.write_text(text[:text.index(START)] + block + text[text.index(END) + len(END):])
+
+
+def main():
+  parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+  parser.add_argument("--only", help="Comma-separated filetypes to measure (default: all)")
+  parser.add_argument("--runs", type=int, default=5, help="hyperfine runs per command (default: 5)")
+  parser.add_argument("--quick", action="store_true", help="3 runs, fixtures only (no large files)")
+  parser.add_argument("--large-lines", type=int, default=500, help="Lines in the large files (default: 500)")
+  parser.add_argument("--check", action="store_true", help="Compare with the baseline only; record nothing")
+  parser.add_argument("--threshold", type=float, default=25, help="Regression: percent slower (default: 25)")
+  parser.add_argument("--min-ms", type=float, default=50, help="Regression: also this many ms slower (default: 50)")
+  parser.add_argument("--max-load", type=float, default=max(1.0, (os.cpu_count() or 1) * 0.6),
+                      help="Highest 1-minute load average to start at (default: 0.6 x CPUs)")
+  parser.add_argument("--max-wait", type=float, default=900, help="Seconds to wait for the load (default: 900)")
+  args = parser.parse_args()
+  if not shutil.which("hyperfine"):
+    raise SystemExit("filetypes: hyperfine is required")
+  names = [entry["filetype"] for entry in filetypes.load()]
+  if args.only:
+    wanted = args.only.split(",")
+    unknown = sorted(set(wanted) - set(names))
+    if unknown:
+      raise SystemExit(f"filetypes: not in filetypes.json: {', '.join(unknown)}")
+    names = [name for name in names if name in wanted]
+  runs = 3 if args.quick else args.runs
+  if not wait_for_load(args.max_load, args.max_wait, 15):
+    raise SystemExit(f"filetypes: load stayed above {args.max_load:.2f}; nothing measured")
+  info = dict(metadata(), runs=runs)
+  baseline, comment = read_baseline()
+  rows = []
+  with tempfile.TemporaryDirectory(prefix="mdpreview-bench-") as temporary:
+    for name in names:
+      source = fixture(name)
+      if source is None:
+        print(f"{name:12} no fixture, skipped", file=sys.stderr)
+        continue
+      files = [("fixture", source)]
+      if not args.quick:
+        files.append(("large", tile(source, Path(temporary) / name, args.large_lines)))
+      for size, path in files:
+        row = measure(name, path, size, runs, temporary)
+        rows.append(row)
+        shown = "  ".join(f"{variant} {row[variant + '_ms']}" for variant in VARIANTS if row[variant + "_ms"] != "")
+        print(f"{name:12} {size:7} {row['engine']:15} {shown}", file=sys.stderr, flush=True)
+  found = regressions(rows, baseline, args.threshold, args.min_ms)
+  for line in found:
+    print(f"regression: {line}")
+  if args.check:
+    print(f"{len(found)} regressions against the baseline ({comment or 'none recorded'})")
+    return 1 if found else 0
+  merged = write_baseline(rows, info, baseline)
+  update_doc(table(merged, describe(info)))
+  print(f"recorded {len(rows)} rows in {BASELINE.relative_to(ROOT)} and {DOC.relative_to(ROOT)}; "
+        f"{len(found)} regressions against the previous baseline")
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())

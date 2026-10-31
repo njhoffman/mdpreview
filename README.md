@@ -70,6 +70,8 @@ Run from the checkout or after `make install`:
 cat README.md | ./mdpreview -
 ./mdpreview --filetype tmux ~/.tmux.conf
 ./mdpreview --paging=always README.md
+./mdpreview --syntax regex config.kdl   # Vim's regex syntax instead of Tree-sitter
+./mdpreview --timings README.md         # per-phase timings and peak memory on stderr
 ```
 
 ### Output modes
@@ -137,6 +139,26 @@ hit this: Neovim's Tree-sitter highlighter does per-line work for every injected
 one tree (see [docs/upstream](docs/upstream/neovim-treesitter-injection-cost.md)). `mdpreview-dispatch`
 uses `--budget=2` so fzf previews stay responsive.
 
+### Syntax engine
+
+`--syntax auto` (the default) highlights with Tree-sitter when the language has a highlights query and with
+Vim's regex syntax files otherwise. `--syntax regex` always uses the regex syntax; for Markdown that also
+skips render-markdown, so the raw Markdown is shown with Vim's markdown syntax. It is mainly a comparison and
+an escape hatch for a slow or broken parser (Tree-sitter's query compilation dominates some filetypes, see
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md)). The built-in pager honours it too.
+
+### Timings
+
+`--timings` prints, after the output, how long each phase took and the peak memory, on stderr; stdout is
+unchanged. `--timings-json` prints the same as one JSON object for scripts. Phases: Python imports, config,
+input, Neovim startup (split into Neovim's own start, the profile, and each setup step: theme, render-markdown,
+icons, query tuning), `open` (edit, filetype, parser load, `vim.treesitter.start`, which compiles the queries,
+and the synchronous parse, or the regex syntax load), frames (the first frame and any resize rounds for
+complete output, with render-markdown's render, the wait in Neovim's event queue, and Neovim's redraw summed
+over all ready callbacks; `ready_callbacks` counts those), ANSI encoding,
+close, and output. `rpc handling (python)` is the part of the waits that Python spent decoding redraw events,
+not extra time. The Neovim pager is not timed. Timings are printed on failures too.
+
 Install with `make install` (see [Install](#install)).
 
 ## fzf
@@ -171,9 +193,23 @@ benchmarks/run --dry-run  # print the table only
 ```
 
 Renders four generated samples ([benchmarks/](benchmarks/): small, medium, large, and a code-fence-heavy
-one; regenerate them with `benchmarks/generate.py`) in complete and viewport mode, appends the medians to
-`benchmarks/history.tsv`, and rewrites the comparison table in [SYNTAX.md](SYNTAX.md#markdown-rendering-benchmarks)
-against the average of all earlier runs. Run it after every change.
+one; regenerate them with `benchmarks/generate.py`) in complete, viewport, and fzf mode (fzf's preview
+variables, which is the time to the first usable preview), appends the medians of wall time, startup and peak
+Neovim and Python RSS to `benchmarks/history.tsv`, and rewrites the comparison table in
+[SYNTAX.md](SYNTAX.md#markdown-rendering-benchmarks) against the average of all earlier runs. Run it after
+every change.
+
+```sh
+benchmarks/filetypes                    # every filetypes.json entry; records; several minutes
+benchmarks/filetypes --only cuda,astro  # some filetypes
+benchmarks/filetypes --quick --check    # fixtures only, compare with the baseline, record nothing
+```
+
+Times each filetype on its fixture and on that fixture repeated to 500 lines with hyperfine: complete output,
+`--syntax regex`, a viewport, bat, and `mdpreview-dispatch`, plus one `--timings-json` run for the phase
+split. Results go to `benchmarks/filetypes.tsv` and [docs/PERFORMANCE.md](docs/PERFORMANCE.md). `--check`
+exits 1 when a filetype got slower than the baseline by 25% and 50 ms (`--threshold`, `--min-ms`). Needs
+hyperfine. `make bench-filetypes` runs it.
 
 ## Tests
 
@@ -183,7 +219,8 @@ bats tests/
 
 `make test` runs the same. Files: `dispatch.bats` (routing, with stub commands), `render.bats` (every table
 filetype through the configured Neovim), `pager.bats` (the built-in Neovim pager, driven in a pty),
-`paging.bats` (external pagers), `fallback.bats`, `config.bats`, `robustness.bats`
+`paging.bats` (external pagers), `fallback.bats`, `config.bats`, `timings.bats` (`--timings`, `--syntax`),
+`benchmarks.bats` (the benchmark scripts), `robustness.bats`
 (tails, viewports, filenames, stdin, modelines, errors, terminal round trip, signal cleanup, immutability,
 sandbox), `languages.bats` (code-fence colors), and `fzf.bats` (a real fzf session; skipped without fzf).
 Python helpers live in `tests/helpers/`; fixtures in `tests/fixtures/`. Tests that need a configured theme

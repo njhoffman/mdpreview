@@ -123,6 +123,18 @@ def finish(expected):
     time.sleep(0.05)
 
 
+if scenario == "regex":
+  # --syntax regex: Vim's Markdown syntax keeps the raw heading marker. It also marks "_" as an error, which
+  # splits PAGER_TOP across escape sequences, so wait for a list item instead.
+  until("item 5", 0, "the first screen")
+  quiet()
+  if "# PAGER" not in plain(captured):
+    fail("--syntax regex still rendered the heading")
+  press("q")
+  finish(lambda status: status == 0)
+  print("ok")
+  sys.exit(0)
+
 until("PAGER_TOP", 0, "the first screen")
 quiet()
 first = plain(captured)

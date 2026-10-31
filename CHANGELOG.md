@@ -6,6 +6,29 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-31
+
+### Added
+
+- `--timings` and `--timings-json`: per-phase timings and peak memory on stderr after rendering (Python
+  imports, config, Neovim startup with each setup step, edit, filetype, parser load, query compilation, parse,
+  render-markdown, redraw, resize rounds, Python's RPC handling, ANSI encoding, close), also on failure.
+- `--syntax auto|regex`: force Vim's regex syntax instead of Tree-sitter; regex Markdown skips
+  render-markdown. The built-in pager honours it.
+- `benchmarks/filetypes` (`make bench-filetypes`): hyperfine timings for every `filetypes.json` entry on its
+  fixture and a 500-line version, comparing complete output, `--syntax regex`, a viewport, bat and the
+  dispatch overhead, with a phase split per file. Records `benchmarks/filetypes.tsv` and the table in
+  `docs/PERFORMANCE.md`; `--check` exits 1 on a regression (25% and 50 ms by default).
+- `docs/PERFORMANCE.md`: where the time goes, from the profile, and the per-filetype table.
+- `tests/timings.bats` and `tests/benchmarks.bats`; a pager test for `--syntax regex`.
+
+### Changed
+
+- `benchmarks/run` also measures an fzf mode (fzf's preview variables, the time to the first usable preview)
+  and records the startup time and the peak RSS of Neovim and of mdpreview's Python in `history.tsv` and the
+  SYNTAX.md table. Shared helpers moved to `benchmarks/common.py`.
+- `make check-dev` lists hyperfine.
+
 ## [0.6.0] - 2026-10-31
 
 ### Added
