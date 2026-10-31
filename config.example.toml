@@ -27,3 +27,9 @@
 # render-markdown options: a Lua file that calls require("render-markdown").setup(opts), such as your editor's
 # plugin config, or returns the options table. Default: render-markdown's defaults.
 # markdown_options = "~/.config/nvim/lua/configs/render-markdown/init.lua"
+
+# Pager for complete output on a terminal (see --paging): "nvim" opens the document in the built-in Neovim
+# pager (live render-markdown, Neovim search, re-wrap on resize; q quits), "less" pipes it into less -R, and
+# any other value is a pager command line that reads ANSI text on stdin. MDPREVIEW_PAGER overrides it, and
+# --pager overrides both. Default: nvim.
+# pager = "less"

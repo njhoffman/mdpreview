@@ -62,10 +62,15 @@ Reviewed: 2026-10-31
 - [x] **Add a paging mode through less.** (p2) [feature] Render the complete document (as `--all` does) and pipe
   it into `${MDPREVIEW_PAGER:-less -R}`; respect `$LESS`, and keep wide glyphs and RGB sequences intact.
   Output over the 4,096-row limit should fall back to a clear error rather than a truncated page.
-- [ ] **Embedded Neovim pager.** (p3) [feature] Later alternative to less: attach the terminal to the embedded
-  Neovim with the same profile, read-only, giving Neovim search, live render-markdown, and re-wrap on resize
-  (closest to nvimpager `-p`). Needs a TUI attach path beside the screen-grab RPC loop and quit keys; would
-  also enable a tail/follow mode (`:checktime` timer) to replace `vimtail`.
+- [x] **Embedded Neovim pager.** (p3) [feature] Done in 0.6.0 as the default `--pager nvim`: Neovim runs on the
+  terminal with the same profile (no RPC attach needed), read-only, with live render-markdown, search,
+  re-wrap on resize, and less-style keys; `--pager less` or `pager = "less"` keeps less.
+- [ ] **Follow mode in the Neovim pager.** (p3) [feature] A tail/follow mode (`:checktime` on a timer, keep the
+  view at the end) to replace `vimtail`; see the nvimpager item above.
+- [ ] **The Neovim pager relies on render-markdown internals for its first frame.** (p3) [refactor]
+  `profile.lua` calls `require("render-markdown.core.ui").updater.new(...):run()` so the first frame is
+  rendered; `update()` defers through `vim.schedule` and shows raw text once. Falls back to `update()` if the
+  internal changes; ask upstream for a synchronous render API.
 - [x] **Auto paging by default.** (p2) [feature] Decided: `--paging=auto|always|never` (matching bat), default
   `auto`: page with less when stdout is a terminal and the render is taller than the screen, otherwise cat.
   Treat `$FZF_PREVIEW_COLUMNS`/`LINES` and a `$NVIM` parent (Neovim terminal buffers, where Telescope's

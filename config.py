@@ -22,6 +22,7 @@ KEYS = {
   "colorscheme": ("string", "Colorscheme name on the runtimepath (optional; Neovim's default otherwise)"),
   "markdown_options": ("path", "Lua file that calls require('render-markdown').setup(opts) or returns opts "
                                "(optional; render-markdown defaults otherwise)"),
+  "pager": ("string", "Pager for complete output: nvim (built in), less (less -R), or a command line"),
 }
 OPTIONAL = {"icons", "parser_dir", "lua_path", "theme", "colorscheme", "markdown_options"}
 
@@ -56,6 +57,7 @@ def defaults():
     "nvim": shutil.which("nvim"),
     "plugin_dirs": [data / "nvim/lazy", data / "nvim/site/pack/*/start", data / "nvim/site/pack/*/opt"],
     "parser_dir": data / "nvim/site",
+    "pager": "nvim",
   }
 
 

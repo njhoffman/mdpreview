@@ -6,6 +6,26 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-31
+
+### Added
+
+- Built-in Neovim pager, now the default for `--paging`: the document opens in a read-only Neovim on the
+  terminal with the same profile and render-markdown options, live rendering, Neovim search and motions,
+  re-wrap on resize, no 4,096-row limit, and less-style `q`, `space`/`f`, `b`, `d`, `u`. The cursor line
+  never shows raw Markdown, and the first frame is already rendered. In auto mode one screen is rendered
+  first to measure the document, so short documents are still printed.
+- `--pager nvim|less|COMMAND` and a `pager` config key (`MDPREVIEW_PAGER`) to choose the pager; `less` means
+  `less -R`. `--check` lists it.
+- `tests/pager.bats` and `tests/helpers/pager_session.py`, which drive the pager in a pseudo-terminal: keys,
+  search, resize, SIGTERM/SIGHUP cleanup, stdin documents, the auto-mode probe, and pager selection.
+
+### Changed
+
+- The default pager is the built-in Neovim pager instead of `less -R`. An existing `MDPREVIEW_PAGER` command
+  still selects that command; set `pager = "less"` or pass `--pager less` to keep less.
+- SIGHUP now cancels a render or pager cleanly, like SIGTERM.
+
 ## [0.5.4] - 2026-10-31
 
 ### Fixed

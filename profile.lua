@@ -51,6 +51,7 @@ local function markdown_options(file)
 end
 
 -- paths: settings from config.py runtime_paths(); every key except render_markdown may be nil.
+-- channel: the RPC channel for the screen grab, or nil for the pager.
 function M.setup(channel, paths)
   M.channel = channel
   vim.opt.runtimepath:append(paths.render_markdown)
@@ -83,13 +84,19 @@ function M.setup(channel, paths)
   config.log_level = "error"
   config.log_runtime = false
   config.completions = { lsp = { enabled = false } }
-  config.on = {
-    render = function(context)
-      if context.buf == vim.api.nvim_get_current_buf() then
-        notify_ready(context.win)
-      end
-    end,
-  }
+  if M.channel then
+    config.on = {
+      render = function(context)
+        if context.buf == vim.api.nvim_get_current_buf() then
+          notify_ready(context.win)
+        end
+      end,
+    }
+  else
+    -- Pager: render in every mode, and never reveal the raw Markdown of the cursor line.
+    config.render_modes = true
+    config.anti_conceal = { enabled = false }
+  end
   if paths.icons then
     require("mini.icons").setup()
   end
@@ -141,18 +148,15 @@ local function highlight(filetype, lang)
   end
 end
 
--- spec: {filetype, lang} from mdpreview, or nil to use Neovim's detection with a Markdown fallback.
-function M.open(path, line, token, spec)
-  M.token = token
-  vim.v.errmsg = ""
+-- Edit path and highlight it. spec: {filetype, lang} from mdpreview, or nil to use Neovim's detection with a
+-- Markdown fallback.
+local function load(path, spec)
   vim.api.nvim_cmd({ cmd = "edit", args = { path }, magic = { file = false, bar = false }, mods = { silent = true } }, {})
   if spec == nil or spec == vim.NIL then
     local detected = vim.filetype.match({ buf = 0, filename = path })
     spec = { filetype = detected or "markdown", lang = vim.treesitter.language.get_lang(detected or "markdown") }
   end
   M.filetype = spec.filetype
-  local last = vim.api.nvim_buf_line_count(0)
-  assert(line <= last, "Requested line exceeds document length (" .. last .. ")")
   if M.filetype == "markdown" then
     vim.bo.filetype = "markdown"
     vim.treesitter.start(0, "markdown")
@@ -160,6 +164,14 @@ function M.open(path, line, token, spec)
   else
     highlight(M.filetype, spec.lang or M.filetype)
   end
+end
+
+function M.open(path, line, token, spec)
+  M.token = token
+  vim.v.errmsg = ""
+  load(path, spec)
+  local last = vim.api.nvim_buf_line_count(0)
+  assert(line <= last, "Requested line exceeds document length (" .. last .. ")")
   vim.api.nvim_win_set_cursor(0, { line, 0 })
   vim.fn.winrestview({ topline = line, leftcol = 0, skipcol = 0 })
   M.update("Preview")
@@ -199,4 +211,32 @@ function M.info()
     extmarks = #vim.api.nvim_buf_get_extmarks(0, namespace, 0, -1, {}),
     normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false }),
   }
+end
+
+-- Built-in pager: the document in this Neovim, attached to the user's terminal. session: {paths, path,
+-- filetype} from mdpreview's page_nvim(). Keys follow less where Neovim's own would edit the buffer.
+function M.pager(session)
+  vim.o.shortmess = vim.o.shortmess .. "IF"
+  M.setup(nil, session.paths)
+  load(session.path, session.filetype)
+  if M.filetype == "markdown" then
+    -- render-markdown's update() renders from a scheduled callback, after Neovim has drawn the raw text once.
+    -- Run its updater directly so the first frame is rendered; fall back to update() if that internal changes.
+    local ui = require("render-markdown.core.ui")
+    local buf, win = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
+    if not (ui.updater and pcall(function() ui.updater.new(buf, win, true):run() end)) then
+      ui.update(buf, win, "Pager", true)
+    end
+  end
+  vim.bo.modifiable = false
+  vim.bo.modified = false
+  local map = function(lhs, rhs)
+    vim.keymap.set("n", lhs, rhs, { buffer = true, nowait = true, silent = true })
+  end
+  map("q", "<Cmd>qa!<CR>")
+  map("<Space>", "<C-f>")
+  map("f", "<C-f>")
+  map("b", "<C-b>")
+  map("d", "<C-d>")
+  map("u", "<C-u>")
 end

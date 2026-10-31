@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# --paging: less for the complete document, auto-detected from the terminal. Uses script(1) for a pty.
+# --paging with an external pager (less, or a stub command): auto-detected from the terminal. Uses script(1)
+# for a pty. The built-in Neovim pager is in pager.bats.
 
 bats_require_minimum_version 1.5.0
 
@@ -100,7 +101,7 @@ in_pty() {
 }
 
 @test "less shows Nerd Font heading icons, not <U+XXXX>" {
-  unset MDPREVIEW_PAGER LESSUTFCHARDEF
+  unset LESSUTFCHARDEF; export MDPREVIEW_PAGER=less
   printf '# Icon heading\n' > "$BATS_TEST_TMPDIR/icon.md"
   "$MDPREVIEW" --paging=never --columns 80 "$BATS_TEST_TMPDIR/icon.md" | grep -q $'\U000F0CA1' \
     || skip "render-markdown options without the default heading icons"
@@ -126,8 +127,8 @@ in_pty() {
   [[ $output == *'/nonexistent/pager'* ]]
 }
 
-@test "less is the default pager and quits on q" {
-  unset MDPREVIEW_PAGER
+@test "less (MDPREVIEW_PAGER=less) quits on q" {
+  export MDPREVIEW_PAGER=less
   run bash -c "printf q | LESS=-R script -qec \"stty rows 10 cols 80; '$MDPREVIEW' '$LONG'; echo rc=\\\$?\" /dev/null"
   [[ $output == *'line 1'* ]]
   [[ $output == *'rc=0'* ]]

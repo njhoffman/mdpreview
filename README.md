@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.5.4`), with a matching annotated Git tag (`v0.5.4`).
+The current version is in [VERSION](VERSION) (`0.6.0`), with a matching annotated Git tag (`v0.6.0`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -23,7 +23,7 @@ Runtime (`make check`, or `mdpreview --check`, verifies these and prints the ver
 | mini.icons | no | v0.18.0-5-g9e4c164 | icons need a Nerd Font |
 | Tree-sitter parsers | no | | Neovim bundles markdown and markdown_inline; code fences and other filetypes need their parsers |
 | bat | no | 0.26.1 | fallback renderer and `mdpreview-dispatch` |
-| less | no | 668 | `--paging` (or set `MDPREVIEW_PAGER`) |
+| less | no | 668 | `--pager less` (the default pager is the built-in Neovim one) |
 
 Development (`make check-dev`): bats 1.5 or later, `script` (util-linux), fzf, git.
 
@@ -81,7 +81,7 @@ mdpreview emits either the **complete document** or one **viewport**:
 | Chosen by | `--all`; also the default when none of `--lines`, `--start-line` or `$FZF_PREVIEW_LINES` is given | `--lines N`, `--start-line N`, or `$FZF_PREVIEW_LINES` (fzf previews without `--all`) |
 | Rows emitted | every screen row of the rendered document, up to 4,096 | at most the viewport height (`--lines`, else `$FZF_PREVIEW_LINES`, else the terminal height) |
 | Time limit | `--budget` (default 5 s), then the bat fallback | `--timeout` per render step only |
-| Paging | `--paging=auto` pages it when it is taller than the terminal | never paged; `--paging=always` with `--lines` or `--start-line` is an error |
+| Paging | `--paging=auto` pages it when it is taller than the terminal (see [Paging](#paging)) | never paged; `--paging=always` with `--lines` or `--start-line` is an error |
 
 Both modes load and parse the whole file, but a viewport draws only one screen, so it is faster on longer
 documents (see the [benchmarks](SYNTAX.md#markdown-rendering-benchmarks)) and is the safer choice for very
@@ -103,14 +103,29 @@ Scrolling works differently in each mode:
 
 ### Paging
 
-`--paging=auto` (the default) pipes the complete document into `$MDPREVIEW_PAGER` (default `less -R`; `$LESS`
-applies) when stdout is a terminal and the output is taller than the screen, and prints it otherwise. It
-always prints when stdout is piped, for a viewport (`--lines`, `--start-line`), inside fzf previews
-(`FZF_PREVIEW_COLUMNS`/`FZF_PREVIEW_LINES` set), and inside Neovim terminal buffers (`$NVIM` set), which
-covers Telescope's previewer even though it provides a terminal. `--paging=always` pages even short documents;
-`--paging=never` always prints. The pager runs with `LESSHISTFILE=-` because Landlock blocks writes outside
-`/tmp`, and with `LESSUTFCHARDEF=e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p` (unless you set your own) so
-less shows Nerd Font icons in the Private Use Areas instead of `<U+F0CA3>`. Ctrl-C is left to the pager.
+`--paging=auto` (the default) pages the complete document when stdout is a terminal and the document is
+taller than the screen, and prints it otherwise. It always prints when stdout is piped, for a viewport
+(`--lines`, `--start-line`), inside fzf previews (`FZF_PREVIEW_COLUMNS`/`FZF_PREVIEW_LINES` set), and inside
+Neovim terminal buffers (`$NVIM` set), which covers Telescope's previewer even though it provides a terminal.
+`--paging=always` pages even short documents; `--paging=never` always prints.
+
+The pager is chosen by `--pager`, else the `pager` config key (`MDPREVIEW_PAGER`), else `nvim`:
+
+- **`nvim`** (default): the document opens in a read-only Neovim on your terminal, with the same profile,
+  theme, and render-markdown options as the printed output. render-markdown stays live, Neovim search,
+  motions, and visual yank work, and resizing the terminal re-wraps the text. There is no 4,096-row limit
+  and no `--budget`, since Neovim only draws what is on screen. The raw Markdown of the cursor line is
+  never revealed. Keys added on top of Neovim's: `q` quits, `space`/`f` and `b` page down/up, `d`/`u`
+  scroll half a page. `--columns` does not apply: the pager uses the terminal's width. In auto mode,
+  mdpreview first renders one screen to measure the document, so a short document is printed instead of
+  opening the pager. When stdout is not a terminal, `--paging=always` prints.
+- **`less`**: the rendered output is piped into `less -R` (`$LESS` applies). less runs with
+  `LESSHISTFILE=-` because Landlock blocks writes outside `/tmp`, and with
+  `LESSUTFCHARDEF=e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p` (unless you set your own) so it shows Nerd Font
+  icons in the Private Use Areas instead of `<U+F0CA3>`.
+- **any other value**: a pager command line that reads ANSI text on stdin, run like less.
+
+Ctrl-C is left to the pager.
 
 ### Budget and fallback
 
@@ -167,7 +182,8 @@ bats tests/
 ```
 
 `make test` runs the same. Files: `dispatch.bats` (routing, with stub commands), `render.bats` (every table
-filetype through the configured Neovim), `paging.bats`, `fallback.bats`, `config.bats`, `robustness.bats`
+filetype through the configured Neovim), `pager.bats` (the built-in Neovim pager, driven in a pty),
+`paging.bats` (external pagers), `fallback.bats`, `config.bats`, `robustness.bats`
 (tails, viewports, filenames, stdin, modelines, errors, terminal round trip, signal cleanup, immutability,
 sandbox), `languages.bats` (code-fence colors), and `fzf.bats` (a real fzf session; skipped without fzf).
 Python helpers live in `tests/helpers/`; fixtures in `tests/fixtures/`. Tests that need a configured theme

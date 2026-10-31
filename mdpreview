@@ -2,6 +2,7 @@
 """Isolated, one-shot Neovim screen-to-ANSI renderer for Markdown and the filetypes in filetypes.json."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import select
@@ -89,6 +90,22 @@ def check():
   return 1 if errors else 0
 
 
+def isolated_environment(temporary):
+  """Environment for a private Neovim: no editor config, state, or parent-Neovim variables leak in."""
+  env = dict(os.environ)
+  for name in ["NVIM", "NVIM_LISTEN_ADDRESS", "VIMINIT", "EXINIT", "GVIMINIT", "NVIM_APPNAME"]:
+    env.pop(name, None)
+  for name, subdir in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
+                       ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")]:
+    env[name] = str(Path(temporary) / subdir)
+  env.update(TMPDIR=temporary, NVIM_LOG_FILE=str(Path(temporary) / "nvim.log"))
+  return env
+
+
+def nvim_command(executable, *extra):
+  return [executable, *extra, "--noplugin", "-n", "-i", "NONE", "-u", str(ROOT / "profile.lua")]
+
+
 class Renderer:
   def __init__(self, executable, paths, temporary, width, height, timeout):
     self.process = None
@@ -105,17 +122,11 @@ class Renderer:
     self.budget_deadline = None  # Overall deadline for complete output, see render(budget=...)
     self.flushes = 0
     self.unpacker = msgpack.Unpacker(raw=False, strict_map_key=False)
-    env = dict(os.environ)
-    for name in ["NVIM", "NVIM_LISTEN_ADDRESS", "VIMINIT", "EXINIT", "GVIMINIT", "NVIM_APPNAME"]:
-      env.pop(name, None)
-    for name, subdir in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
-                         ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache")]:
-      env[name] = str(Path(temporary) / subdir)
-    env.update(TMPDIR=temporary, NVIM_LOG_FILE=str(Path(temporary) / "nvim.log"),
-               TERM="xterm-256color", COLORTERM="truecolor")
+    env = isolated_environment(temporary)
+    env.update(TERM="xterm-256color", COLORTERM="truecolor")
     try:
       self.process = subprocess.Popen(
-        [executable, "--embed", "--noplugin", "-n", "-i", "NONE", "-u", str(ROOT / "profile.lua")],
+        nvim_command(executable, "--embed"),
         cwd=temporary, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=self.stderr, start_new_session=True,
       )
@@ -316,15 +327,28 @@ def fallback_bat(path, width, filetype):
   return subprocess.run(command, stdout=subprocess.PIPE, check=True).stdout
 
 
-def should_page(mode, complete, output):
+def wants_pager(mode, complete):
+  """Whether complete output should go to a pager, before its height is known."""
   if mode != "auto":
     return mode == "always"
   if not complete or not sys.stdout.isatty():
     return False
   # fzf previews and Neovim terminal buffers (Telescope's previewer) give a TTY but want plain output.
-  if any(os.environ.get(name) for name in ["FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES", "NVIM"]):
+  return not any(os.environ.get(name) for name in ["FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES", "NVIM"])
+
+
+def should_page(mode, complete, output):
+  if not wants_pager(mode, complete):
     return False
-  return output.count(b"\n") > shutil.get_terminal_size().lines
+  return mode == "always" or output.count(b"\n") > shutil.get_terminal_size().lines
+
+
+def resolve_pager(value):
+  """"nvim" for the built-in pager, otherwise the external pager's argument list."""
+  value = (value or "nvim").strip()
+  if value == "nvim":
+    return "nvim"
+  return ["less", "-R"] if value == "less" else shlex.split(value)
 
 
 # less shows Private Use Area code points (Nerd Font icons such as render-markdown's heading icons) as
@@ -332,8 +356,7 @@ def should_page(mode, complete, output):
 LESS_PRIVATE_USE = "e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p"
 
 
-def page(output):
-  command = shlex.split(os.environ.get("MDPREVIEW_PAGER") or "less -R")
+def page(output, command):
   # Writes outside /tmp are blocked by Landlock, so keep less from trying to save its history file.
   environment = dict(os.environ, LESSHISTFILE="-")
   environment.setdefault("LESSUTFCHARDEF", LESS_PRIVATE_USE)
@@ -348,6 +371,32 @@ def page(output):
     return pager.wait()
   finally:
     signal.signal(signal.SIGINT, previous)
+
+
+def page_nvim(executable, paths, temporary, path, filetype):
+  """Open the document in a read-only Neovim on this terminal (q quits); return Neovim's exit status."""
+  env = isolated_environment(temporary)
+  env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype})
+  command = nvim_command(executable, "-c", "lua mdpreview.pager(vim.json.decode(vim.env.MDPREVIEW_SESSION))")
+  # Keys come from the terminal even when the document came from stdin.
+  keyboard = None if sys.stdin.isatty() else open("/dev/tty", "rb")
+  # Neovim puts the terminal in raw mode, so Ctrl-C reaches it as a key; ignore any stray SIGINT here.
+  previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+  process = None
+  try:
+    process = subprocess.Popen(command, cwd=temporary, env=env, stdin=keyboard)
+    return process.wait()
+  finally:
+    signal.signal(signal.SIGINT, previous)
+    if process and process.poll() is None:  # Cancelled (SIGTERM/SIGHUP) while the pager was open.
+      process.terminate()
+      try:
+        process.wait(timeout=2)
+      except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    if keyboard:
+      keyboard.close()
 
 
 def positive(value):
@@ -370,8 +419,10 @@ def main():
   mode.add_argument("--all", action="store_true", help="Emit the complete document, up to 4096 screen rows")
   parser.add_argument("--start-line", type=positive, default=1, help="First source line for a viewport")
   parser.add_argument("--paging", choices=["auto", "always", "never"], default="auto",
-                      help="Page the complete document with $MDPREVIEW_PAGER (default: less -R). auto pages when "
-                      "stdout is a terminal outside fzf and Neovim and the output is taller than the screen")
+                      help="Page the complete document. auto pages when stdout is a terminal outside fzf and "
+                      "Neovim and the output is taller than the screen")
+  parser.add_argument("--pager", help="nvim (built-in Neovim pager), less (less -R), or a pager command line; "
+                      "defaults to the configured pager (MDPREVIEW_PAGER), then nvim")
   parser.add_argument("--budget", type=float, default=5.0,
                       help="Seconds allowed for complete output before falling back (default: 5; 0 disables)")
   parser.add_argument("--fallback", choices=["bat", "none"], default="bat",
@@ -389,6 +440,7 @@ def main():
     raise PreviewError(str(error)) from error
   if args.nvim:
     settings["nvim"] = args.nvim
+  pager = resolve_pager(args.pager or settings["pager"])
   width = args.columns or int(os.environ.get("FZF_PREVIEW_COLUMNS", "0")) or shutil.get_terminal_size().columns
   fzf_lines = int(os.environ.get("FZF_PREVIEW_LINES", "0"))
   all_rows = args.all or (args.lines is None and not fzf_lines and args.start_line == 1)
@@ -414,6 +466,21 @@ def main():
     if path.stat().st_size > MAX_BYTES:
       raise PreviewError("Prototype input limit is 10 MiB")
     filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
+    if pager == "nvim" and wants_pager(args.paging, all_rows) and sys.stdout.isatty():
+      restrict_writes()
+      if args.paging == "auto":
+        # Probe with one screen: a document that fits is printed as is, a taller one opens the pager.
+        lines = shutil.get_terminal_size().lines
+        renderer = Renderer(settings["nvim"], paths, temporary, width, lines, args.timeout)
+        try:
+          output, info = renderer.render(path, width, lines, 1, False, filetype)
+        finally:
+          renderer.close()
+        if info["total_height"] <= lines:
+          sys.stdout.buffer.write(output)
+          sys.stdout.buffer.flush()
+          return 0
+      return page_nvim(settings["nvim"], paths, temporary, path, filetype)
     if all_rows:
       # Start near the final size: every full redraw costs rows x injected trees, and resizing a short grid to
       # fit adds one. Wrapping and virtual rows can still need a resize.
@@ -433,7 +500,11 @@ def main():
     finally:
       renderer.close()
   if should_page(args.paging, all_rows, output):
-    return page(output)
+    if pager == "nvim":  # --paging=always without a terminal: nothing to show a pager on, so print.
+      sys.stdout.buffer.write(output)
+      sys.stdout.buffer.flush()
+      return 0
+    return page(output, pager)
   sys.stdout.buffer.write(output)
   sys.stdout.buffer.flush()
   return 0
@@ -445,6 +516,7 @@ def cancel(*_):
 
 if __name__ == "__main__":
   signal.signal(signal.SIGTERM, cancel)
+  signal.signal(signal.SIGHUP, cancel)
   try:
     raise SystemExit(main())
   except BrokenPipeError:
