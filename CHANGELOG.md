@@ -6,6 +6,14 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-31
+
+### Added
+
+- `benchmarks/run`: waits for a low load average, times small, medium, large and code-fence-heavy Markdown
+  samples in complete and viewport mode, appends to `benchmarks/history.tsv`, and updates a comparison table
+  against the running averages in `SYNTAX.md`. `benchmarks/generate.py` writes the samples.
+
 ## [0.4.0] - 2026-10-31
 
 Large-table fixes, faster complete output, and a bat fallback.

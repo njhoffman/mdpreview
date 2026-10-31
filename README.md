@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.4.0`), with a matching annotated Git tag (`v0.4.0`).
+The current version is in [VERSION](VERSION) (`0.4.1`), with a matching annotated Git tag (`v0.4.1`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -86,6 +86,18 @@ The script is a generated bash `case` (a few milliseconds, no Neovim or Python s
 `./gen-dispatch` after editing [filetypes.json](filetypes.json) or changing bat's syntaxes or `--map-syntax`
 config; `tests/dispatch.bats` fails while it is stale. Link it onto PATH like `mdpreview`. See
 [development and integration notes](docs/DEVELOPMENT.md).
+
+## Benchmarks
+
+```sh
+benchmarks/run            # waits for load <= 0.6 x CPUs, records, updates SYNTAX.md
+benchmarks/run --dry-run  # print the table only
+```
+
+Renders four generated samples ([benchmarks/](benchmarks/): small, medium, large, and a code-fence-heavy
+one; regenerate them with `benchmarks/generate.py`) in complete and viewport mode, appends the medians to
+`benchmarks/history.tsv`, and rewrites the comparison table in [SYNTAX.md](SYNTAX.md#markdown-rendering-benchmarks)
+against the average of all earlier runs. Run it after every change.
 
 ## Tests
 

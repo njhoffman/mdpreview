@@ -16,10 +16,11 @@ changes that require consumers to alter configuration or invocation.
 ## Release checklist
 
 1. Review [TODO.md](../TODO.md), complete applicable validation, and inspect the diff for generated/private files.
-2. Update [CHANGELOG.md](../CHANGELOG.md) with the version, date, behavior changes, and remaining limits.
-3. Ensure the CLI's version agrees with the tag once `--version` has been implemented.
-4. Commit the release contents on the intended branch.
-5. Create an annotated tag, then push the branch and that exact tag together:
+2. Run `benchmarks/run` and check the SYNTAX.md table for regressions against the averages.
+3. Update [CHANGELOG.md](../CHANGELOG.md) with the version, date, behavior changes, and remaining limits.
+4. Ensure the CLI's version agrees with the tag once `--version` has been implemented.
+5. Commit the release contents on the intended branch.
+6. Create an annotated tag, then push the branch and that exact tag together:
 
 ```sh
 git tag -a v0.1.0 -m "Release v0.1.0: initial Markdown renderer"

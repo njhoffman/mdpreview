@@ -71,6 +71,8 @@ Reviewed: 2026-10-31
 
 ## Performance
 
+- [x] **Track Markdown benchmark averages.** (p2) [perf] `benchmarks/run` records small/medium/large/code samples
+  in `benchmarks/history.tsv` and updates the SYNTAX.md table; run it after every change.
 - [ ] **Benchmark render time per filetype.** (p2) [perf] Time every `filetypes.json` entry with hyperfine (fixture
   plus a larger realistic file each): Tree-sitter vs regex syntax, `--all` vs a viewport, against bat on the
   same file, and the dispatch overhead. Rough one-off timings on 2026-10-31 at 80 columns: most filetypes

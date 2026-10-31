@@ -1,0 +1,9 @@
+date	version	commit	sample	mode	median_ms	min_ms	runs	load1	nvim
+2026-10-31T20:58Z	0.4.0	34bfe2b	small	complete	586	516	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	small	viewport	672	616	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	medium	complete	1501	1469	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	medium	viewport	870	756	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	large	complete	3196	2930	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	large	viewport	943	832	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	code	complete	1585	1549	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb
+2026-10-31T20:58Z	0.4.0	34bfe2b	code	viewport	884	727	3	3.49	NVIM v0.13.0-dev-1915+gc5641b2bfb

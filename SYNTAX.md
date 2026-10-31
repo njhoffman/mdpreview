@@ -72,6 +72,25 @@ Fenced code blocks inside Markdown are highlighted with Tree-sitter for these ve
 
 Other installed parsers are on the runtime path and may also highlight fences, but are unverified.
 
+## Markdown rendering benchmarks
+
+<!-- benchmark:start -->
+
+Latest run: 2026-10-31T20:58Z, version 0.4.0 (34bfe2b), load 3.49, NVIM v0.13.0-dev-1915+gc5641b2bfb. Median of 3 runs after one warm-up, 100 columns; complete output uses `--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in [benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.
+
+| Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average |
+|---|---:|---:|---|---:|---:|---:|---:|
+| [small](benchmarks/small.md) | 51 | 2 | complete | 586 | - | 0 | first run |
+| [small](benchmarks/small.md) | 51 | 2 | viewport | 672 | - | 0 | first run |
+| [medium](benchmarks/medium.md) | 353 | 15 | complete | 1501 | - | 0 | first run |
+| [medium](benchmarks/medium.md) | 353 | 15 | viewport | 870 | - | 0 | first run |
+| [large](benchmarks/large.md) | 888 | 40 | complete | 3196 | - | 0 | first run |
+| [large](benchmarks/large.md) | 888 | 40 | viewport | 943 | - | 0 | first run |
+| [code](benchmarks/code.md) | 546 | 40 | complete | 1585 | - | 0 | first run |
+| [code](benchmarks/code.md) | 546 | 40 | viewport | 884 | - | 0 | first run |
+
+<!-- benchmark:end -->
+
 ## Neovim treesitter filetypes not in bat
 
 Covers the installed Tree-sitter parsers. A parser counts as covered by bat when bat has a syntax for one

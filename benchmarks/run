@@ -1,0 +1,164 @@
+#!/usr/bin/python3
+"""Benchmark Markdown rendering, append the results to history.tsv, and update the table in SYNTAX.md.
+
+Waits until the 1-minute load average is low enough, then renders each sample several times in two modes
+(complete output and a 40-row viewport) and records the median. The SYNTAX.md table compares the new medians
+with the average of all earlier runs.
+"""
+
+import argparse
+import datetime
+import os
+from pathlib import Path
+import statistics
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+HISTORY = HERE / "history.tsv"
+SYNTAX = ROOT / "SYNTAX.md"
+SAMPLES = ["small", "medium", "large", "code"]
+MODES = {
+  "complete": ["--all", "--budget", "0"],
+  "viewport": ["--lines", "40"],
+}
+FIELDS = ["date", "version", "commit", "sample", "mode", "median_ms", "min_ms", "runs", "load1", "nvim"]
+START, END = "<!-- benchmark:start -->", "<!-- benchmark:end -->"
+
+
+def load1():
+  return float(Path("/proc/loadavg").read_text().split()[0])
+
+
+def wait_for_load(limit, max_wait, interval):
+  deadline = time.monotonic() + max_wait
+  while (current := load1()) > limit:
+    if time.monotonic() >= deadline:
+      return False
+    print(f"load {current:.2f} > {limit:.2f}; waiting {interval:.0f}s", file=sys.stderr, flush=True)
+    time.sleep(interval)
+  return True
+
+
+def measure(sample, mode, runs, columns, timeout):
+  command = [str(ROOT / "mdpreview"), "--paging=never", "--columns", str(columns), "--timeout", str(timeout),
+             *MODES[mode], str(HERE / f"{sample}.md")]
+  times = []
+  for index in range(runs + 1):  # The first run warms the page cache and is discarded.
+    start = time.perf_counter()
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    elapsed = (time.perf_counter() - start) * 1000
+    if result.returncode != 0 or not result.stdout or result.stderr:
+      raise SystemExit(f"benchmark: {sample}/{mode} failed: {result.stderr.decode(errors='replace').strip()}")
+    if index:
+      times.append(elapsed)
+  return statistics.median(times), min(times)
+
+
+def git(*arguments):
+  return subprocess.run(["git", "-C", str(ROOT), *arguments], capture_output=True, text=True).stdout.strip()
+
+
+def read_history():
+  if not HISTORY.exists():
+    return []
+  lines = HISTORY.read_text().splitlines()
+  return [dict(zip(FIELDS, line.split("\t"))) for line in lines[1:] if line]
+
+
+def append_history(rows):
+  new = not HISTORY.exists()
+  with open(HISTORY, "a", encoding="utf-8") as handle:
+    if new:
+      handle.write("\t".join(FIELDS) + "\n")
+    for row in rows:
+      handle.write("\t".join(str(row[field]) for field in FIELDS) + "\n")
+
+
+def sample_stats(sample):
+  text = (HERE / f"{sample}.md").read_text()
+  return len(text.splitlines()), sum(1 for line in text.splitlines() if line.startswith("```") and line != "```")
+
+
+def table(rows, previous):
+  first = rows[0]
+  out = [
+    START,
+    "",
+    f"Latest run: {first['date']}, version {first['version']} ({first['commit']}), load {first['load1']}, "
+    f"{first['nvim']}. Median of {first['runs']} runs after one warm-up, 100 columns; complete output uses "
+    "`--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in "
+    "[benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.",
+    "",
+    "| Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average |",
+    "|---|---:|---:|---|---:|---:|---:|---:|",
+  ]
+  for row in rows:
+    lines, blocks = sample_stats(row["sample"])
+    earlier = [float(item["median_ms"]) for item in previous
+               if item["sample"] == row["sample"] and item["mode"] == row["mode"]]
+    if earlier:
+      average = statistics.fmean(earlier)
+      change = f"{(row['median_ms'] - average) / average * 100:+.0f}%"
+      average_text = f"{average:.0f}"
+    else:
+      change, average_text = "first run", "-"
+    out.append(f"| [{row['sample']}](benchmarks/{row['sample']}.md) | {lines} | {blocks} | {row['mode']} | "
+               f"{row['median_ms']:.0f} | {average_text} | {len(earlier)} | {change} |")
+  out += ["", END]
+  return "\n".join(out)
+
+
+def update_syntax(block):
+  text = SYNTAX.read_text()
+  if START in text and END in text:
+    text = text[:text.index(START)] + block + text[text.index(END) + len(END):]
+  else:
+    anchor = "## Neovim treesitter filetypes not in bat"
+    section = "## Markdown rendering benchmarks\n\n" + block + "\n\n"
+    text = text.replace(anchor, section + anchor, 1) if anchor in text else text + "\n" + section
+  SYNTAX.write_text(text)
+
+
+def main():
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument("--runs", type=int, default=3, help="Measured runs per sample and mode (default: 3)")
+  parser.add_argument("--max-load", type=float, default=max(1.0, (os.cpu_count() or 1) * 0.6),
+                      help="Highest 1-minute load average to start at (default: 0.6 x CPUs)")
+  parser.add_argument("--max-wait", type=float, default=900, help="Seconds to wait for the load (default: 900)")
+  parser.add_argument("--interval", type=float, default=15, help="Seconds between load checks (default: 15)")
+  parser.add_argument("--timeout", type=int, default=60, help="mdpreview --timeout per render (default: 60)")
+  parser.add_argument("--dry-run", action="store_true", help="Print the table without recording anything")
+  args = parser.parse_args()
+  if not wait_for_load(args.max_load, args.max_wait, args.interval):
+    raise SystemExit(f"benchmark: load stayed above {args.max_load:.2f} for {args.max_wait:.0f}s; nothing recorded")
+  dirty = "-dirty" if git("status", "--porcelain", "--untracked-files=no") else ""
+  base = {
+    "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
+    "version": (ROOT / "VERSION").read_text().strip(),
+    "commit": git("rev-parse", "--short", "HEAD") + dirty,
+    "runs": args.runs,
+    "load1": f"{load1():.2f}",
+    "nvim": subprocess.run(["nvim", "--version"], capture_output=True, text=True).stdout.splitlines()[0],
+  }
+  rows = []
+  for sample in SAMPLES:
+    for mode in MODES:
+      median, fastest = measure(sample, mode, args.runs, 100, args.timeout)
+      rows.append(dict(base, sample=sample, mode=mode, median_ms=round(median), min_ms=round(fastest)))
+      print(f"{sample:7} {mode:9} {median:7.0f} ms", file=sys.stderr, flush=True)
+  previous = read_history()
+  block = table(rows, previous)
+  if args.dry_run:
+    print(block)
+    return 0
+  append_history(rows)
+  update_syntax(block)
+  print(block)
+  return 0
+
+
+if __name__ == "__main__":
+  raise SystemExit(main())
