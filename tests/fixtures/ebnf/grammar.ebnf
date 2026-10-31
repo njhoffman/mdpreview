@@ -1,0 +1,4 @@
+(* grammar *)
+expr = term , { ("+" | "-") , term } ;
+term = digit , { digit } ;
+digit = "0" | "1" ;

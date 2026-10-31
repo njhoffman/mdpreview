@@ -1,0 +1,6 @@
+/dts-v1/;
+// board
+/ {
+  model = "Demo";
+  leds { compatible = "gpio-leds"; };
+};

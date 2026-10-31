@@ -1,0 +1,5 @@
+# terminal
+super + Return
+	kitty
+super + {h,j,k,l}
+	bspc node -f {west,south,north,east}

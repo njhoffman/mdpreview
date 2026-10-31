@@ -1,0 +1,5 @@
+# neomutt
+set realname = "Test User"
+set sort = threads
+bind index g noop
+color index yellow default "~N"

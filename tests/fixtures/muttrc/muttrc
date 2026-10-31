@@ -1,0 +1,5 @@
+# mutt
+set realname = "Test User"
+set sort = threads
+macro index ,s "<save-message>" "save"
+color index yellow default "~N"

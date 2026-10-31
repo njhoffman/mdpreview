@@ -1,0 +1,6 @@
+[Unit]
+Description=Demo
+
+[Service]
+ExecStart=/usr/bin/true
+Restart=on-failure

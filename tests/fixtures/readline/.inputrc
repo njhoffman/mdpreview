@@ -1,0 +1,6 @@
+# readline
+set editing-mode vi
+"\e[A": history-search-backward
+$if Bash
+set show-all-if-ambiguous on
+$endif

@@ -1,0 +1,2 @@
+# usb
+SUBSYSTEM=="usb", ATTR{idVendor}=="1234", MODE="0666", GROUP="plugdev"

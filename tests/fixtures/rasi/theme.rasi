@@ -1,0 +1,5 @@
+* {
+  background: #222222;
+  font: "Mono 10";
+}
+window { width: 40%; }

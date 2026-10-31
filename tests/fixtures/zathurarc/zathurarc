@@ -1,0 +1,4 @@
+# zathura
+set selection-clipboard clipboard
+map J navigate next
+set font "monospace 10"

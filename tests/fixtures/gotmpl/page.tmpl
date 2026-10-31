@@ -1,0 +1,4 @@
+{{/* comment */}}
+{{ define "main" }}
+{{ range .Items }}<li>{{ .Name | printf "%q" }}</li>{{ end }}
+{{ end }}

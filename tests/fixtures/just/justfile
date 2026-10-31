@@ -1,0 +1,6 @@
+# build
+set shell := ["bash", "-c"]
+version := "1.0"
+
+build target="all":
+    echo {{target}} {{version}}

@@ -1,0 +1,4 @@
+# i3
+set $mod Mod4
+bindsym $mod+Return exec i3-sensible-terminal
+workspace 1 output DP-1

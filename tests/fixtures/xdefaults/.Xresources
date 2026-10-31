@@ -1,0 +1,5 @@
+! colors
+Xft.dpi: 96
+*.foreground: #c0c0c0
+#include ".Xresources.d/fonts"
+URxvt*scrollBar: false

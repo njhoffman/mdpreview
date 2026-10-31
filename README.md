@@ -1,11 +1,13 @@
 # mdpreview
 
-Render Markdown to ANSI terminal output using Neovim, Tree-sitter, and render-markdown.nvim.
+Render Markdown to ANSI terminal output using Neovim, Tree-sitter, and render-markdown.nvim. It also renders
+about 40 config and source filetypes that bat has no syntax for, using Tree-sitter or Neovim regex syntax.
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The initial prototype is version `0.1.0`, identified by annotated Git tag `v0.1.0`.
-See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), and the [release process](docs/RELEASING.md).
+The current version is in [VERSION](VERSION) (`0.2.0`), with a matching annotated Git tag (`v0.2.0`).
+See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
+[release process](docs/RELEASING.md).
 
 ## Requirements
 
@@ -24,7 +26,7 @@ manager or installer runs. Use a Nerd Font for the configured icons.
 
 ## Usage
 
-Keep `mdpreview`, `profile.lua`, `readonly.py`, and `queries/` together:
+Keep `mdpreview`, `profile.lua`, `readonly.py`, `filetypes.py`, `filetypes.json`, and `queries/` together:
 
 ```sh
 ./mdpreview README.md
@@ -32,11 +34,13 @@ Keep `mdpreview`, `profile.lua`, `readonly.py`, and `queries/` together:
 ./mdpreview --columns 80 --lines 24 README.md
 ./mdpreview --start-line 20 --lines 40 README.md
 cat README.md | ./mdpreview -
+./mdpreview --filetype tmux ~/.tmux.conf
 ```
 
-Expose the executable on PATH through `~/.local/bin/mdpreview`. On this machine that link already points
-to the checkout under `~/git/mdpreview`. Supporting files resolve relative to the executable's real location,
-so the directory can be moved as a unit.
+Expose the executable on PATH with a symlink, not a copy: `ln -s "$PWD/mdpreview" ~/.local/bin/mdpreview`.
+On this machine that link points to the checkout under `~/ghq/github.com/njhoffman/mdpreview`. Supporting
+files resolve relative to the executable's real location, so the directory can be moved as a unit; a copy
+fails because it cannot find `readonly.py`.
 
 ## fzf
 
@@ -49,8 +53,27 @@ printf '%s\n' ./*.md |
 
 `--all` emits the complete document for scrolling. Omit it for a single viewport, sized using
 `FZF_PREVIEW_COLUMNS` and `FZF_PREVIEW_LINES`. Neovim performs wrapping; refreshing on resize recomputes layout.
-For a mixed-file preview, route Markdown extensions to this command and other text to bat. See
+For a mixed-file preview, use `mdpreview-dispatch`: it sends Markdown and the other filetypes in
+[SYNTAX.md](SYNTAX.md) to mdpreview and everything else to bat, and falls back to bat if mdpreview fails:
+
+```sh
+fzf --preview 'mdpreview-dispatch {}' --preview-window 'right:75%:nowrap' --bind 'resize:refresh-preview'
+mdpreview-dispatch --print path/to/file   # print the filetype; exit 1 when bat would handle it
+```
+
+The script is a generated bash `case` (a few milliseconds, no Neovim or Python start-up). Regenerate it with
+`./gen-dispatch` after editing [filetypes.json](filetypes.json) or changing bat's syntaxes or `--map-syntax`
+config; `tests/dispatch.bats` fails while it is stale. Link it onto PATH like `mdpreview`. See
 [development and integration notes](docs/DEVELOPMENT.md).
+
+## Tests
+
+```sh
+bats tests/
+```
+
+`tests/dispatch.bats` checks routing with stub commands; `tests/render.bats` renders every filetype in the table
+through the local Neovim setup.
 
 ## Code highlighting
 

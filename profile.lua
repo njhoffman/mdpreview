@@ -17,7 +17,25 @@ vim.g.loaded_node_provider = 0
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_perl_provider = 0
 
+local function notify_ready(win)
+  local token = M.token
+  vim.schedule(function()
+    if token ~= M.token then
+      return
+    end
+    vim.cmd("redraw!")
+    vim.rpcnotify(M.channel, "mdpreview_ready", {
+      token = token,
+      buffer = vim.api.nvim_get_current_buf(),
+      topline = vim.fn.winsaveview().topline,
+      width = vim.api.nvim_win_get_width(win),
+      height = vim.api.nvim_win_get_height(win),
+    })
+  end)
+end
+
 function M.setup(channel, paths)
+  M.channel = channel
   for _, path in ipairs(paths.runtime) do
     vim.opt.runtimepath:append(path)
   end
@@ -42,20 +60,9 @@ function M.setup(channel, paths)
   config.completions = { lsp = { enabled = false } }
   config.on = {
     render = function(context)
-      local token = M.token
-      vim.schedule(function()
-        if token ~= M.token or context.buf ~= vim.api.nvim_get_current_buf() then
-          return
-        end
-        vim.cmd("redraw!")
-        vim.rpcnotify(channel, "mdpreview_ready", {
-          token = token,
-          buffer = context.buf,
-          topline = vim.fn.winsaveview().topline,
-          width = vim.api.nvim_win_get_width(context.win),
-          height = vim.api.nvim_win_get_height(context.win),
-        })
-      end)
+      if context.buf == vim.api.nvim_get_current_buf() then
+        notify_ready(context.win)
+      end
     end,
   }
   require("mini.icons").setup()
@@ -63,28 +70,65 @@ function M.setup(channel, paths)
   dofile(paths.markdown_plugin .. "/plugin/render-markdown.lua")
 end
 
-function M.open(path, line, token)
+local function has_highlights(lang)
+  return pcall(vim.treesitter.language.add, lang) and #vim.treesitter.query.get_files(lang, "highlights") > 0
+end
+
+-- Highlight a non-Markdown buffer with Tree-sitter when the language has a highlights query,
+-- otherwise with Neovim's regex syntax file for the filetype.
+local function highlight(filetype, lang)
+  vim.bo.filetype = filetype
+  if has_highlights(lang) then
+    vim.treesitter.start(0, lang)
+    -- Parse synchronously, injections included, so the captured screen is fully highlighted.
+    vim.treesitter.get_parser(0, lang):parse(true)
+    M.engine = "treesitter"
+  else
+    vim.cmd("syntax enable")
+    vim.bo.syntax = filetype
+    M.engine = "syntax"
+  end
+end
+
+-- spec: {filetype, lang} from mdpreview, or nil to use Neovim's detection with a Markdown fallback.
+function M.open(path, line, token, spec)
   M.token = token
   vim.v.errmsg = ""
   vim.api.nvim_cmd({ cmd = "edit", args = { path }, magic = { file = false, bar = false }, mods = { silent = true } }, {})
-  vim.bo.filetype = "markdown"
-  vim.treesitter.start(0, "markdown")
+  if spec == nil or spec == vim.NIL then
+    local detected = vim.filetype.match({ buf = 0, filename = path })
+    spec = { filetype = detected or "markdown", lang = vim.treesitter.language.get_lang(detected or "markdown") }
+  end
+  M.filetype = spec.filetype
   local last = vim.api.nvim_buf_line_count(0)
   assert(line <= last, "Requested line exceeds document length (" .. last .. ")")
+  if M.filetype == "markdown" then
+    vim.bo.filetype = "markdown"
+    vim.treesitter.start(0, "markdown")
+    M.engine = "render-markdown"
+  else
+    highlight(M.filetype, spec.lang or M.filetype)
+  end
   vim.api.nvim_win_set_cursor(0, { line, 0 })
   vim.fn.winrestview({ topline = line, leftcol = 0, skipcol = 0 })
-  require("render-markdown.core.ui").update(
-    vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), "Preview", true
-  )
+  M.update("Preview")
   return vim.api.nvim_get_current_buf()
+end
+
+function M.update(event)
+  if M.filetype == "markdown" then
+    require("render-markdown.core.ui").update(
+      vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), event, true
+    )
+  else
+    notify_ready(vim.api.nvim_get_current_win())
+  end
 end
 
 function M.resized(token)
   M.token = token
   vim.fn.winrestview({ topline = 1, leftcol = 0, skipcol = 0 })
-  require("render-markdown.core.ui").update(
-    vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win(), "PreviewResize", true
-  )
+  M.update("PreviewResize")
 end
 
 function M.info()
@@ -99,6 +143,8 @@ function M.info()
     height = vim.api.nvim_win_get_height(0),
     topline = view.topline,
     error = vim.v.errmsg,
+    filetype = M.filetype,
+    engine = M.engine,
     extmarks = #vim.api.nvim_buf_get_extmarks(0, namespace, 0, -1, {}),
     normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false }),
   }

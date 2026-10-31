@@ -1,0 +1,9 @@
+# comment
+{
+  name: demo
+  count: 3
+  list: [
+    a
+    b
+  ]
+}

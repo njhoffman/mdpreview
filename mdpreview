@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Isolated, one-shot Neovim Markdown screen-to-ANSI prototype."""
+"""Isolated, one-shot Neovim screen-to-ANSI renderer for Markdown and the filetypes in filetypes.json."""
 
 import argparse
 import os
@@ -14,6 +14,7 @@ import time
 
 import msgpack
 
+import filetypes
 from readonly import restrict_writes
 
 ROOT = Path(__file__).resolve().parent
@@ -170,9 +171,9 @@ class Renderer:
       raise PreviewError("; ".join(self.errors))
     return info
 
-  def render(self, path, width, height, start_line=1, all_rows=False):
+  def render(self, path, width, height, start_line=1, all_rows=False, filetype=None):
     self.token += 1
-    self.request("nvim_exec_lua", "return mdpreview.open(...)", [str(path), start_line, self.token])
+    self.request("nvim_exec_lua", "return mdpreview.open(...)", [str(path), start_line, self.token, filetype])
     info = self.wait_ready(self.token, width, height)
     if all_rows:
       for _ in range(8):
@@ -250,6 +251,19 @@ class Renderer:
     self.stderr.close()
 
 
+def resolve_filetype(name, path):
+  """Return {"filetype", "lang"} for Neovim, or None to let Neovim detect the filetype."""
+  if name:
+    entry = filetypes.find(name) or {"filetype": name}
+  elif path is None:
+    entry = {"filetype": "markdown"}
+  else:
+    entry = filetypes.detect(path)
+    if entry is None:
+      return None
+  return {"filetype": entry["filetype"], "lang": entry.get("lang", entry["filetype"])}
+
+
 def positive(value):
   number = int(value)
   if number < 1:
@@ -259,7 +273,9 @@ def positive(value):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument("file", type=Path, help="Markdown file, or - for stdin")
+  parser.add_argument("file", type=Path, help="File to render, or - for stdin")
+  parser.add_argument("--filetype", help="Neovim filetype; defaults to the filetypes.json match, then Neovim "
+                      "detection, then markdown (stdin: markdown)")
   parser.add_argument("--columns", type=positive, help="Output width; defaults to fzf or terminal width")
   mode = parser.add_mutually_exclusive_group()
   mode.add_argument("--lines", type=positive, help="Emit one viewport with this many rows")
@@ -290,10 +306,11 @@ def main():
         raise PreviewError("Input must be a regular file")
     if path.stat().st_size > MAX_BYTES:
       raise PreviewError("Prototype input limit is 10 MiB")
+    filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
     restrict_writes()
     renderer = Renderer(args.nvim, paths, temporary, width, height, args.timeout)
     try:
-      output, _ = renderer.render(path, width, height, args.start_line, all_rows)
+      output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype)
     finally:
       renderer.close()
     sys.stdout.buffer.write(output)

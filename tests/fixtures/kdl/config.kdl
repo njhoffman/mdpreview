@@ -1,0 +1,6 @@
+// node
+package {
+  name "demo"
+  version "1.0" type="semver"
+  dependencies { lib 1.2 }
+}

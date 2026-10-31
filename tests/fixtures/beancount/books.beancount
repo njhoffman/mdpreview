@@ -1,0 +1,5 @@
+; beancount
+option "title" "Books"
+2026-10-31 * "Grocery"
+  Expenses:Food   42.00 USD
+  Assets:Checking
