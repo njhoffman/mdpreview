@@ -15,8 +15,9 @@ import time
 
 import msgpack
 
+import config
 import filetypes
-from readonly import restrict_writes
+from readonly import landlock_abi, restrict_writes
 
 ROOT = Path(__file__).resolve().parent
 MAX_ROWS = 4096
@@ -35,25 +36,57 @@ class Cancelled(Exception):
   pass
 
 
-def find_paths():
-  home = Path.home()
-  plugins = home / ".local/share/nvim/lazy"
-  editor = home / ".config/nvim/lua"
-  paths = {
-    "editor_lua": str(editor),
-    "editor_site": str(home / ".local/share/nvim/site"),
-    "theme": str(editor / "colorschemes/nord-nick/init.lua"),
-    "markdown_config": str(editor / "configs/render-markdown/init.lua"),
-    "markdown_plugin": str(plugins / "render-markdown.nvim"),
-    "runtime": [str(ROOT), *[str(plugins / name) for name in ["render-markdown.nvim", "mini.icons"]]],
-  }
-  required = [paths["theme"], paths["markdown_config"], paths["editor_site"], *paths["runtime"],
-              str(Path(paths["editor_site"]) / "parser/markdown.so"),
-              str(Path(paths["editor_site"]) / "parser/markdown_inline.so")]
-  missing = [path for path in required if not Path(path).exists()]
-  if missing:
-    raise PreviewError("Missing existing dependencies: " + ", ".join(missing))
-  return paths
+def find_paths(settings=None):
+  """Resolve the configured dependencies for profile.lua, or raise PreviewError naming what is missing."""
+  try:
+    settings = settings or config.load()[0]
+  except config.ConfigError as error:
+    raise PreviewError(str(error)) from error
+  errors, _ = config.problems(settings)
+  if errors:
+    raise PreviewError("; ".join(errors) + " (see mdpreview --check)")
+  return dict(config.runtime_paths(settings), root=str(ROOT))
+
+
+def check():
+  """Print the resolved configuration, versions, and problems; return 1 if a required piece is missing."""
+  try:
+    settings, sources = config.load()
+  except config.ConfigError as error:
+    print(f"config: {error}")
+    return 1
+  path = config.config_file()
+  print(f"config file: {path}{'' if path.is_file() else ' (not found; using defaults)'}")
+  for key, (_, description) in config.KEYS.items():
+    value = settings[key]
+    shown = ", ".join(map(str, value)) if isinstance(value, list) else value
+    print(f"  {key:16} {shown if shown not in (None, '') else '-'}  [{sources[key]}]")
+  def version(command):
+    try:
+      result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+      return (result.stdout or result.stderr).splitlines()[0].strip()
+    except (OSError, IndexError, subprocess.TimeoutExpired):
+      return "not found"
+  def git_version(path):
+    return version(["git", "-C", str(path), "describe", "--tags", "--always"]) if path else "not found"
+  print("versions:")
+  print(f"  python           {sys.version.split()[0]}, msgpack {'.'.join(map(str, msgpack.version))}")
+  print(f"  neovim           {version([settings['nvim'], '--version']) if settings['nvim'] else 'not found'}")
+  print(f"  render-markdown  {git_version(settings['render_markdown'])}")
+  print(f"  mini.icons       {git_version(settings['icons'])}")
+  print(f"  bat              {version(['bat', '--version'])}")
+  print(f"  less             {version(['less', '--version'])}")
+  try:
+    print(f"  landlock         ABI {landlock_abi()}")
+  except OSError as error:
+    print(f"  landlock         unavailable: {error}")
+  errors, warnings = config.problems(settings)
+  for warning in warnings:
+    print(f"warning: {warning}")
+  for error in errors:
+    print(f"error: {error}")
+  print("ok" if not errors else "missing required dependencies")
+  return 1 if errors else 0
 
 
 class Renderer:
@@ -320,6 +353,8 @@ def positive(value):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
+  if sys.argv[1:] == ["--check"]:
+    return check()
   parser.add_argument("file", type=Path, help="File to render, or - for stdin")
   parser.add_argument("--filetype", help="Neovim filetype; defaults to the filetypes.json match, then Neovim "
                       "detection, then markdown (stdin: markdown)")
@@ -335,11 +370,19 @@ def main():
                       help="Seconds allowed for complete output before falling back (default: 5; 0 disables)")
   parser.add_argument("--fallback", choices=["bat", "none"], default="bat",
                       help="Renderer used when complete output exceeds --budget or the row limit (default: bat)")
-  parser.add_argument("--nvim", default=shutil.which("nvim"), help="Neovim executable; defaults to PATH")
+  parser.add_argument("--nvim", help="Neovim executable; defaults to the configured nvim, then PATH")
+  parser.add_argument("--check", action="store_true",
+                      help="Print the resolved configuration and dependency versions, then exit")
   parser.add_argument("--timeout", type=positive, default=8, help="Seconds allowed per render operation")
   args = parser.parse_args()
-  if not args.nvim:
-    raise PreviewError("Neovim is not on PATH")
+  if args.check:
+    return check()
+  try:
+    settings = config.load()[0]
+  except config.ConfigError as error:
+    raise PreviewError(str(error)) from error
+  if args.nvim:
+    settings["nvim"] = args.nvim
   width = args.columns or int(os.environ.get("FZF_PREVIEW_COLUMNS", "0")) or shutil.get_terminal_size().columns
   fzf_lines = int(os.environ.get("FZF_PREVIEW_LINES", "0"))
   all_rows = args.all or (args.lines is None and not fzf_lines and args.start_line == 1)
@@ -352,7 +395,7 @@ def main():
     if args.lines is not None or args.start_line != 1:
       raise PreviewError("--paging=always pages the complete document; remove --lines and --start-line")
     all_rows = True
-  paths = find_paths()
+  paths = find_paths(settings)
   with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
     if str(args.file) == "-":
       data = sys.stdin.buffer.read(MAX_BYTES + 1)
@@ -372,7 +415,7 @@ def main():
         source_rows = sum(chunk.count(b"\n") for chunk in iter(lambda: handle.read(1 << 16), b"")) + 1
       height = max(height, min(MAX_ROWS, source_rows + 4))
     restrict_writes()
-    renderer = Renderer(args.nvim, paths, temporary, width, height, args.timeout)
+    renderer = Renderer(settings["nvim"], paths, temporary, width, height, args.timeout)
     try:
       output, _ = renderer.render(path, width, height, args.start_line, all_rows, filetype, args.budget)
     except TooLarge as error:

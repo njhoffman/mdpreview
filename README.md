@@ -5,24 +5,36 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.4.1`), with a matching annotated Git tag (`v0.4.1`).
+The current version is in [VERSION](VERSION) (`0.5.0`), with a matching annotated Git tag (`v0.5.0`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
 ## Requirements
 
-This version uses an existing personal Neovim installation:
-
 - Linux on x86-64 with Landlock support.
-- `/usr/bin/python3` with the `msgpack` module.
-- A recent Neovim on PATH; tested with `v0.13.0-dev-1915+gc5641b2bfb`.
-- Installed `render-markdown.nvim` and `mini.icons` under `~/.local/share/nvim/lazy/`.
-- Matching parsers and queries under `~/.local/share/nvim/site/`.
-- Theme modules under `~/.config/nvim/lua/colorschemes/nord-nick/` and Markdown options at
-  `~/.config/nvim/lua/configs/render-markdown/init.lua`.
+- `/usr/bin/python3` (3.11 or later) with the `msgpack` module.
+- A recent Neovim; tested with `v0.13.0-dev-1915+gc5641b2bfb`.
+- `render-markdown.nvim`, and optionally `mini.icons` (use a Nerd Font for its icons).
 
-The paths are defined in `find_paths()`. Dependencies are read from the existing installation; no plugin
-manager or installer runs. Use a Nerd Font for the configured icons.
+Dependencies are read from an existing installation; no plugin manager runs. Neovim's bundled markdown parsers
+are used unless a parser directory with newer ones is configured.
+
+## Configuration
+
+mdpreview reads `~/.config/mdpreview/config.toml` (or `$MDPREVIEW_CONFIG`); every key is optional and
+`MDPREVIEW_<KEY>` environment variables override single keys. See [config.example.toml](config.example.toml).
+Without a file it finds plugins in lazy.nvim's and the packpath's directories, uses
+`~/.local/share/nvim/site` for parsers when present, Neovim's default colorscheme, and render-markdown's
+default options. Point `theme` (a Lua file returning a table with `apply()`, with `lua_path` for its modules)
+or `colorscheme`, and `markdown_options` (your editor's render-markdown config file, or a file returning the
+options) at an editor setup to match its appearance.
+
+```sh
+mdpreview --check   # resolved settings and their sources, versions, warnings; exit 1 if something required is missing
+```
+
+Missing optional pieces are skipped with a warning in `--check`; a missing Neovim or render-markdown is an
+error.
 
 ## Usage
 

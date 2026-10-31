@@ -1,13 +1,20 @@
 import ctypes
 import os
-import sys
 
 
-def restrict_writes():
+def landlock_abi():
+    """Return the kernel's Landlock ABI version, or raise OSError when Landlock is unavailable."""
     libc = ctypes.CDLL(None, use_errno=True)
     abi = libc.syscall(444, 0, 0, 1)
     if abi < 1:
         raise OSError(ctypes.get_errno(), 'Landlock ABI query failed')
+    return abi
+
+
+def restrict_writes():
+    """Allow writes only under /tmp and to terminal devices, for this process and its children."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    abi = landlock_abi()
     rights = (1 << 1) | sum(1 << bit for bit in range(4, 13))
     if abi >= 2:
         rights |= 1 << 13
@@ -44,19 +51,3 @@ def restrict_writes():
     finally:
         os.close(descriptor)
     return abi
-
-
-if __name__ == '__main__':
-    print('Landlock ABI:', restrict_writes(), flush=True)
-    if sys.argv[1:] == ['--verify']:
-        try:
-            descriptor = os.open('/home/nicholas/.config/nvimpager/nvimpager', os.O_WRONLY)
-        except PermissionError:
-            print('Repository write opens denied; no source file written.')
-        else:
-            os.close(descriptor)
-            raise RuntimeError('Read-only guard did not restrict the repository')
-        with open('/tmp/nvimpager-assessment.ZN1B0M/guard-check.txt', 'w') as handle:
-            handle.write('temporary writes allowed\n')
-    else:
-        os.execvp(sys.argv[1], sys.argv[1:])

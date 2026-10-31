@@ -76,18 +76,18 @@ Other installed parsers are on the runtime path and may also highlight fences, b
 
 <!-- benchmark:start -->
 
-Latest run: 2026-10-31T20:58Z, version 0.4.0 (34bfe2b), load 3.49, NVIM v0.13.0-dev-1915+gc5641b2bfb. Median of 3 runs after one warm-up, 100 columns; complete output uses `--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in [benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.
+Latest run: 2026-10-31T21:05Z, version 0.4.1 (8a1744c-dirty), load 3.77, NVIM v0.13.0-dev-1915+gc5641b2bfb. Median of 3 runs after one warm-up, 100 columns; complete output uses `--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in [benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.
 
 | Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average |
 |---|---:|---:|---|---:|---:|---:|---:|
-| [small](benchmarks/small.md) | 51 | 2 | complete | 586 | - | 0 | first run |
-| [small](benchmarks/small.md) | 51 | 2 | viewport | 672 | - | 0 | first run |
-| [medium](benchmarks/medium.md) | 353 | 15 | complete | 1501 | - | 0 | first run |
-| [medium](benchmarks/medium.md) | 353 | 15 | viewport | 870 | - | 0 | first run |
-| [large](benchmarks/large.md) | 888 | 40 | complete | 3196 | - | 0 | first run |
-| [large](benchmarks/large.md) | 888 | 40 | viewport | 943 | - | 0 | first run |
-| [code](benchmarks/code.md) | 546 | 40 | complete | 1585 | - | 0 | first run |
-| [code](benchmarks/code.md) | 546 | 40 | viewport | 884 | - | 0 | first run |
+| [small](benchmarks/small.md) | 51 | 2 | complete | 629 | 586 | 1 | +7% |
+| [small](benchmarks/small.md) | 51 | 2 | viewport | 611 | 672 | 1 | -9% |
+| [medium](benchmarks/medium.md) | 353 | 15 | complete | 1546 | 1501 | 1 | +3% |
+| [medium](benchmarks/medium.md) | 353 | 15 | viewport | 723 | 870 | 1 | -17% |
+| [large](benchmarks/large.md) | 888 | 40 | complete | 2898 | 3196 | 1 | -9% |
+| [large](benchmarks/large.md) | 888 | 40 | viewport | 781 | 943 | 1 | -17% |
+| [code](benchmarks/code.md) | 546 | 40 | complete | 1427 | 1585 | 1 | -10% |
+| [code](benchmarks/code.md) | 546 | 40 | viewport | 806 | 884 | 1 | -9% |
 
 <!-- benchmark:end -->
 

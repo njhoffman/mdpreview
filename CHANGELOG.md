@@ -6,6 +6,28 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+Configurable dependencies instead of hardcoded personal paths.
+
+### Added
+
+- Configuration file `~/.config/mdpreview/config.toml` (or `$MDPREVIEW_CONFIG`) with `MDPREVIEW_<KEY>`
+  overrides, replacing the hardcoded editor, theme, plugin, and parser paths. See `config.example.toml`.
+- `mdpreview --check`: resolved settings and their sources, dependency versions, warnings, and errors.
+
+### Changed
+
+- Only Neovim and render-markdown.nvim are required. A missing theme, render-markdown options file,
+  `mini.icons`, or parser directory is skipped (Neovim's default colors, render-markdown's defaults, bundled
+  parsers). Existing setups need a config file to keep their theme and options: set `lua_path`, `theme` and
+  `markdown_options`.
+- `markdown_options` may return the options table instead of calling `setup()`.
+
+### Removed
+
+- `readonly.py`'s command-line entry point (an experiment-only `--verify` mode with hardcoded paths).
+
 ## [0.4.1] - 2026-10-31
 
 ### Added

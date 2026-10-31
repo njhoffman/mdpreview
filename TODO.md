@@ -7,8 +7,8 @@ Reviewed: 2026-10-31
 
 ## Portability and repeatable validation
 
-- [ ] (p1) [refactor] Replace hardcoded editor, theme, plugin, and parser paths with explicit configuration and sensible defaults.
-- [ ] (p2) [feature] Provide a sample appearance profile so another user can run the tool without this personal Neovim setup.
+- [x] (p1) [refactor] Replace hardcoded editor, theme, plugin, and parser paths with explicit configuration and sensible defaults.
+- [x] (p2) [feature] Provide a sample appearance profile so another user can run the tool without this personal Neovim setup.
 - [ ] (p1) [chore] Declare runtime and development dependencies; provide a reproducible installation method.
 - [ ] (p1) [test] Turn the historical harnesses into tests that resolve paths from the checkout and use temporary output directories.
 - [ ] (p2) [test] Add self-contained fixtures for Markdown structures, all supported code languages, aliases, Unicode, and long lines.

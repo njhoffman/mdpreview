@@ -34,27 +34,49 @@ local function notify_ready(win)
   end)
 end
 
+-- Read render-markdown options from a file that either calls require("render-markdown").setup(opts), as an
+-- editor config does, or returns the options table. The editor's plugin manager is never started.
+local function markdown_options(file)
+  if not file then
+    return {}
+  end
+  local captured
+  package.loaded["render-markdown"] = { setup = function(value) captured = value end }
+  local ok, returned = pcall(dofile, file)
+  package.loaded["render-markdown"] = nil
+  assert(ok, "markdown_options " .. file .. ": " .. tostring(returned))
+  local options = captured or (type(returned) == "table" and returned)
+  assert(options, "markdown_options " .. file .. " neither called setup() nor returned a table")
+  return options
+end
+
+-- paths: settings from config.py runtime_paths(); every key except render_markdown may be nil.
 function M.setup(channel, paths)
   M.channel = channel
-  for _, path in ipairs(paths.runtime) do
-    vim.opt.runtimepath:append(path)
+  vim.opt.runtimepath:append(paths.render_markdown)
+  if paths.icons then
+    vim.opt.runtimepath:append(paths.icons)
   end
-  -- Use the editor's installed parser/query pairs ahead of stale copies in plugin checkouts.
-  vim.opt.runtimepath:prepend(paths.editor_site)
+  vim.opt.runtimepath:append(paths.root) -- queries/ shipped with mdpreview
+  -- Prefer an installed parser/query directory over stale copies in plugin checkouts and the bundled ones.
+  if paths.parser_dir then
+    vim.opt.runtimepath:prepend(paths.parser_dir)
+  end
   vim.treesitter.language.register("cpp", { "cxx", "cc" })
   vim.treesitter.language.register("bash", { "sh", "shell" })
   vim.treesitter.language.register("javascript", "js")
   vim.treesitter.language.register("python", "py")
-  package.path = paths.editor_lua .. "/?.lua;" .. paths.editor_lua .. "/?/init.lua;" .. package.path
+  if paths.lua_path then
+    package.path = paths.lua_path .. "/?.lua;" .. paths.lua_path .. "/?/init.lua;" .. package.path
+  end
   vim.cmd("highlight clear")
-  dofile(paths.theme).apply()
+  if paths.theme then
+    dofile(paths.theme).apply()
+  elseif paths.colorscheme then
+    vim.cmd.colorscheme(paths.colorscheme)
+  end
 
-  -- Read the existing Markdown options without starting the editor's plugin manager.
-  local config
-  package.loaded["render-markdown"] = { setup = function(value) config = value end }
-  dofile(paths.markdown_config)
-  package.loaded["render-markdown"] = nil
-  assert(config, "Markdown configuration did not call setup")
+  local config = markdown_options(paths.markdown_options)
   -- render-markdown's debounce is a throttle: an update within `debounce` ms of the previous one is
   -- dropped, so the forced update after an --all resize could vanish and the render never signalled.
   config.debounce = 0
@@ -68,9 +90,11 @@ function M.setup(channel, paths)
       end
     end,
   }
-  require("mini.icons").setup()
+  if paths.icons then
+    require("mini.icons").setup()
+  end
   require("render-markdown").setup(config)
-  dofile(paths.markdown_plugin .. "/plugin/render-markdown.lua")
+  dofile(paths.render_markdown .. "/plugin/render-markdown.lua")
   M.tune_markdown_queries()
 end
 

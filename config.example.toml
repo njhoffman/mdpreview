@@ -1,0 +1,29 @@
+# mdpreview configuration. Copy to ~/.config/mdpreview/config.toml (or point MDPREVIEW_CONFIG at a file).
+# Every key is optional; MDPREVIEW_<KEY> environment variables override single keys (lists use ':').
+# Run `mdpreview --check` to see the resolved values and anything missing.
+
+# Neovim executable. Default: nvim on PATH.
+# nvim = "~/.local/bin/nvim"
+
+# Where plugin checkouts are searched (globs allowed). Default: lazy.nvim's and packpath's locations.
+# plugin_dirs = ["~/.local/share/nvim/lazy", "~/.local/share/nvim/site/pack/*/start"]
+
+# Explicit plugin checkouts. Default: found under plugin_dirs. render_markdown is required;
+# set icons = "" to render without an icon provider.
+# render_markdown = "~/.local/share/nvim/lazy/render-markdown.nvim"
+# icons = "~/.local/share/nvim/lazy/mini.icons"
+
+# Tree-sitter parser/ and queries/ directory, preferred over Neovim's bundled parsers.
+# Default: ~/.local/share/nvim/site when it exists.
+# parser_dir = "~/.local/share/nvim/site"
+
+# Appearance. theme is a Lua file returning a table with apply(); it wins over colorscheme.
+# lua_path is added to package.path so the theme can require() its own modules.
+# Default: Neovim's default colorscheme.
+# lua_path = "~/.config/nvim/lua"
+# theme = "~/.config/nvim/lua/colorschemes/mytheme/init.lua"
+# colorscheme = "habamax"
+
+# render-markdown options: a Lua file that calls require("render-markdown").setup(opts), such as your editor's
+# plugin config, or returns the options table. Default: render-markdown's defaults.
+# markdown_options = "~/.config/nvim/lua/configs/render-markdown/init.lua"

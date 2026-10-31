@@ -28,6 +28,7 @@ print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT"); do
 }
 
 @test "regex-syntax filetypes highlight comments" {
+  "$MDPREVIEW" --check | grep -q '^  theme  *[^ -]' || skip "needs a configured theme with italic comments"
   run "$MDPREVIEW" --columns 80 --all --filetype tmux -- "$FIXTURES/tmux/.tmux.conf"
   [ "$status" -eq 0 ]
   first=$(head -1 <<<"$output")
