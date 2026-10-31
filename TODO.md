@@ -42,7 +42,7 @@ Reviewed: 2026-10-31
 - [ ] (p3) [docs] Provide a checked-in mixed-file fzf integration example with bat fallback and resize refresh.
 - [ ] (p2) [test] Verify Markdown aliases, uppercase extensions, symlinks, empty files, and renderer failures.
 - [ ] (p2) [bug] Review selection parsing for filenames containing literal pipes or display separators.
-- [ ] (p2) [docs] Clarify full-document versus viewport behavior and how scrolling interacts with each mode.
+- [x] (p2) [docs] Clarify full-document versus viewport behavior and how scrolling interacts with each mode.
 - [ ] (p2) [feature] Define readable fallbacks for input, row, and timeout limits.
 
 ## Replacing nvimpager

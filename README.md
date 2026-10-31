@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.5.2`), with a matching annotated Git tag (`v0.5.2`).
+The current version is in [VERSION](VERSION) (`0.5.3`), with a matching annotated Git tag (`v0.5.3`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -72,6 +72,35 @@ cat README.md | ./mdpreview -
 ./mdpreview --paging=always README.md
 ```
 
+### Output modes
+
+mdpreview emits either the **complete document** or one **viewport**:
+
+| | Complete document | Viewport |
+|---|---|---|
+| Chosen by | `--all`; also the default when none of `--lines`, `--start-line` or `$FZF_PREVIEW_LINES` is given | `--lines N`, `--start-line N`, or `$FZF_PREVIEW_LINES` (fzf previews without `--all`) |
+| Rows emitted | every screen row of the rendered document, up to 4,096 | at most the viewport height (`--lines`, else `$FZF_PREVIEW_LINES`, else the terminal height) |
+| Time limit | `--budget` (default 5 s), then the bat fallback | `--timeout` per render step only |
+| Paging | `--paging=auto` pages it when it is taller than the terminal | never paged; `--paging=always` with `--lines` or `--start-line` is an error |
+
+Both modes load and parse the whole file, but a viewport draws only one screen, so it is faster on longer
+documents (see the [benchmarks](SYNTAX.md#markdown-rendering-benchmarks)) and is the safer choice for very
+large tables, which can exceed the complete-output budget.
+
+Scrolling works differently in each mode:
+
+- **Complete document.** Scroll in the pager, or in the fzf preview window (mouse, `shift-up`/`shift-down`).
+  The output is static: wrapping was done by Neovim at the width given, so resizing needs a fresh render
+  (`--bind 'resize:refresh-preview'` in fzf).
+- **Viewport.** The output is exactly one screen; scrolling the fzf preview reveals nothing more. To show
+  another part, run again with a different `--start-line`. `--start-line` counts **source lines**, not screen
+  rows: wrapped lines, rendered tables, and render-markdown's virtual rows (heading padding, code borders)
+  take more or fewer screen rows than source lines, so stepping `--start-line` by the viewport height does not
+  move by exactly one screen.
+- **Jumping to a line in fzf** (for example a grep match): with a viewport, pass the line number as
+  `--start-line {2}` so the match is the first row. With the complete document, fzf's `--preview-window
+  '+{2}'` offset counts screen rows, so it drifts from the source line wherever rows wrap or are added.
+
 ### Paging
 
 `--paging=auto` (the default) pipes the complete document into `$MDPREVIEW_PAGER` (default `less -R`; `$LESS`
@@ -104,7 +133,7 @@ printf '%s\n' ./*.md |
 ```
 
 `--all` emits the complete document for scrolling. Omit it for a single viewport, sized using
-`FZF_PREVIEW_COLUMNS` and `FZF_PREVIEW_LINES`. Neovim performs wrapping; refreshing on resize recomputes layout.
+`FZF_PREVIEW_COLUMNS` and `FZF_PREVIEW_LINES` (see [Output modes](#output-modes)). Neovim performs wrapping; refreshing on resize recomputes layout.
 For a mixed-file preview, use `mdpreview-dispatch`: it sends Markdown and the other filetypes in
 [SYNTAX.md](SYNTAX.md) to mdpreview and everything else to bat, and falls back to bat if mdpreview fails:
 

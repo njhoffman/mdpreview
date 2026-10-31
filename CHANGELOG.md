@@ -6,6 +6,13 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-31
+
+### Added
+
+- README "Output modes" section: how complete-document and viewport output are chosen, their limits and
+  paging, and how scrolling, resizing, `--start-line`, and fzf line offsets behave in each.
+
 ## [0.5.2] - 2026-10-31
 
 ### Added
