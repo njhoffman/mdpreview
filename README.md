@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.5.3`), with a matching annotated Git tag (`v0.5.3`).
+The current version is in [VERSION](VERSION) (`0.5.4`), with a matching annotated Git tag (`v0.5.4`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -109,7 +109,8 @@ always prints when stdout is piped, for a viewport (`--lines`, `--start-line`), 
 (`FZF_PREVIEW_COLUMNS`/`FZF_PREVIEW_LINES` set), and inside Neovim terminal buffers (`$NVIM` set), which
 covers Telescope's previewer even though it provides a terminal. `--paging=always` pages even short documents;
 `--paging=never` always prints. The pager runs with `LESSHISTFILE=-` because Landlock blocks writes outside
-`/tmp`, and Ctrl-C is left to the pager.
+`/tmp`, and with `LESSUTFCHARDEF=e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p` (unless you set your own) so
+less shows Nerd Font icons in the Private Use Areas instead of `<U+F0CA3>`. Ctrl-C is left to the pager.
 
 ### Budget and fallback
 

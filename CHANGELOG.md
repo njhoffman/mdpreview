@@ -6,6 +6,14 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-31
+
+### Fixed
+
+- Paged output showed Nerd Font icons (render-markdown's heading icons and other Private Use Area glyphs) as
+  `<U+F0CA3>` in less. The pager now gets `LESSUTFCHARDEF` marking those ranges printable and single-width,
+  as Neovim laid them out; a `LESSUTFCHARDEF` already in the environment is kept.
+
 ## [0.5.3] - 2026-10-31
 
 ### Added

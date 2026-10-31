@@ -327,10 +327,16 @@ def should_page(mode, complete, output):
   return output.count(b"\n") > shutil.get_terminal_size().lines
 
 
+# less shows Private Use Area code points (Nerd Font icons such as render-markdown's heading icons) as
+# <U+F0CA3>. Neovim laid them out as one cell each, so declare them printable and single-width.
+LESS_PRIVATE_USE = "e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p"
+
+
 def page(output):
   command = shlex.split(os.environ.get("MDPREVIEW_PAGER") or "less -R")
   # Writes outside /tmp are blocked by Landlock, so keep less from trying to save its history file.
   environment = dict(os.environ, LESSHISTFILE="-")
+  environment.setdefault("LESSUTFCHARDEF", LESS_PRIVATE_USE)
   previous = signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl-C belongs to the pager, as with git.
   try:
     pager = subprocess.Popen(command, stdin=subprocess.PIPE, env=environment)

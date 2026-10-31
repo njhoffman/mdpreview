@@ -86,6 +86,29 @@ in_pty() {
   [ "$(cat "$PAGED")" = - ]
 }
 
+@test "the pager gets LESSUTFCHARDEF marking Private Use Area glyphs printable" {
+  unset LESSUTFCHARDEF
+  MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\" > \"\$1\"; cat > /dev/null' pager $PAGED" \
+    "$MDPREVIEW" --columns 80 --paging=always "$LONG"
+  [ "$(cat "$PAGED")" = 'e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p' ]
+}
+
+@test "a LESSUTFCHARDEF of the user's own is kept" {
+  LESSUTFCHARDEF=e000-e0ff:w MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\" > \"\$1\"; cat > /dev/null' pager $PAGED" \
+    "$MDPREVIEW" --columns 80 --paging=always "$LONG"
+  [ "$(cat "$PAGED")" = e000-e0ff:w ]
+}
+
+@test "less shows Nerd Font heading icons, not <U+XXXX>" {
+  unset MDPREVIEW_PAGER LESSUTFCHARDEF
+  printf '# Icon heading\n' > "$BATS_TEST_TMPDIR/icon.md"
+  "$MDPREVIEW" --paging=never --columns 80 "$BATS_TEST_TMPDIR/icon.md" | grep -q $'\U000F0CA1' \
+    || skip "render-markdown options without the default heading icons"
+  run timeout 20 bash -c "LESS='-R -E -X' LESSCHARSET=utf-8 script -qec \"stty rows 10 cols 80; '$MDPREVIEW' --paging=always '$BATS_TEST_TMPDIR/icon.md'\" /dev/null < /dev/null"
+  [[ $output == *$'\U000F0CA1'* ]]
+  [[ $output != *'<U+'* ]]
+}
+
 @test "a pager that quits early is not an error" {
   MDPREVIEW_PAGER=true run --separate-stderr "$MDPREVIEW" --columns 80 --paging=always "$LONG"
   [ "$status" -eq 0 ]

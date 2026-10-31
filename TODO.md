@@ -38,6 +38,8 @@ Reviewed: 2026-10-31
   then link the issue here and drop the workaround notes once fixed upstream.
 - [ ] **Non-numeric fzf size variables give a raw ValueError.** (p3) [bug] `int(os.environ["FZF_PREVIEW_COLUMNS"])`
   in `mdpreview` main() prints `invalid literal for int()`; report which variable was bad instead.
+- [x] **less shows Nerd Font icons as `<U+F0CA3>`.** (p1) [bug] less treats Private Use Area code points as
+  non-printable; `page()` now sets `LESSUTFCHARDEF` for those ranges unless the user has one.
 - [ ] (p2) [feature] Add `--version` and keep its output consistent with the release tag.
 - [ ] (p3) [docs] Provide a checked-in mixed-file fzf integration example with bat fallback and resize refresh.
 - [ ] (p2) [test] Verify Markdown aliases, uppercase extensions, symlinks, empty files, and renderer failures.
