@@ -5,7 +5,7 @@ about 40 config and source filetypes that bat has no syntax for, using Tree-sitt
 The command captures rendered characters and styles, including headings, icons, nested lists, code backgrounds,
 and tables. The GitHub repository is named `nvim-md-cat`; the executable is `mdpreview`.
 
-The current version is in [VERSION](VERSION) (`0.5.1`), with a matching annotated Git tag (`v0.5.1`).
+The current version is in [VERSION](VERSION) (`0.5.2`), with a matching annotated Git tag (`v0.5.2`).
 See [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [SYNTAX.md](SYNTAX.md) (filetype coverage), and the
 [release process](docs/RELEASING.md).
 
@@ -136,8 +136,12 @@ against the average of all earlier runs. Run it after every change.
 bats tests/
 ```
 
-`tests/dispatch.bats` checks routing with stub commands; `tests/render.bats` renders every filetype in the table
-through the local Neovim setup.
+`make test` runs the same. Files: `dispatch.bats` (routing, with stub commands), `render.bats` (every table
+filetype through the configured Neovim), `paging.bats`, `fallback.bats`, `config.bats`, `robustness.bats`
+(tails, viewports, filenames, stdin, modelines, errors, terminal round trip, signal cleanup, immutability,
+sandbox), `languages.bats` (code-fence colors), and `fzf.bats` (a real fzf session; skipped without fzf).
+Python helpers live in `tests/helpers/`; fixtures in `tests/fixtures/`. Tests that need a configured theme
+skip without one.
 
 ## Code highlighting
 
@@ -162,6 +166,4 @@ readiness, Python converts the RGB screen grid into ANSI output and closes Neovi
 Each invocation starts a new Neovim; there is no persistent worker. Input is limited to 10 MiB, width to
 10–500 columns, and complete output to 4,096 screen rows. A viewport still loads the whole input file.
 
-The prototype passed 30 language-color checks and 21 integration checks, plus actual fzf scrolling, resize,
-selection, and cancellation checks. Those local experiments are not a portable CI suite. Released-Neovim
-compatibility and configurable dependency paths remain future work.
+Released-Neovim compatibility remains unverified (see TODO.md).

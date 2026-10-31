@@ -10,14 +10,14 @@ Reviewed: 2026-10-31
 - [x] (p1) [refactor] Replace hardcoded editor, theme, plugin, and parser paths with explicit configuration and sensible defaults.
 - [x] (p2) [feature] Provide a sample appearance profile so another user can run the tool without this personal Neovim setup.
 - [x] (p1) [chore] Declare runtime and development dependencies; provide a reproducible installation method.
-- [ ] (p1) [test] Turn the historical harnesses into tests that resolve paths from the checkout and use temporary output directories.
-- [ ] (p2) [test] Add self-contained fixtures for Markdown structures, all supported code languages, aliases, Unicode, and long lines.
-- [ ] (p2) [test] Retain checks for complete-document tails, stdin, unusual filenames, modelines, cancellation, and source immutability.
+- [x] (p1) [test] Turn the historical harnesses into tests that resolve paths from the checkout and use temporary output directories.
+- [x] (p2) [test] Add self-contained fixtures for Markdown structures, all supported code languages, aliases, Unicode, and long lines.
+- [x] (p2) [test] Retain checks for complete-document tails, stdin, unusual filenames, modelines, cancellation, and source immutability.
 - [ ] (p2) [test] Exercise parser/query mismatches and missing dependencies with actionable errors.
 - [ ] (p2) [test] Test released Neovim versions and declare the supported minimum.
 - [ ] **Landlock allows writes to all of /tmp.** (p3) [refactor] `readonly.py` grants full write rights on
   `/tmp` rather than only the per-run `mdpreview-*` directory; scope the rule to that directory.
-- [ ] (p2) [docs] Document the Linux/Landlock requirement and remove experiment-only helper entrypoints.
+- [x] (p2) [docs] Document the Linux/Landlock requirement and remove experiment-only helper entrypoints.
 
 ## CLI and fzf integration
 

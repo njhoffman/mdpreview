@@ -37,7 +37,7 @@ print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT")
   while IFS= read -r file; do
     expected=${file#"$FIXTURES"/}
     expected=${expected%%/*}
-    [ "$expected" = bat ] && continue
+    case $expected in bat | reference) continue ;; esac  # reference/: Markdown documents, not a filetype
     case $file in */plain.html | */nochart/* | */Chart.yaml) continue ;; esac
     route "$file"
     [ "$status" -eq 0 ] || { echo "$file: not routed"; return 1; }

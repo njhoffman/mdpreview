@@ -35,41 +35,27 @@ luac -p profile.lua
 ./mdpreview --columns 120 --lines 40 README.md > /tmp/mdpreview-viewport.ansi
 ```
 
-The initial experiments checked all three reference Markdown documents at 80x24 and 120x40, complete-document
-tails, Unicode through Neovim's terminal emulator, finite stdin, literal filenames, modelines, errors, limits,
-and SIGTERM/SIGKILL cleanup. Language checks verify distinct code-token foregrounds, rather than accepting a
-colored header as evidence of code highlighting.
-
-The moved directory also contains historical experiment scripts and generated captures. They are excluded from
-the initial source commit: those scripts still reference temporary paths and the nvimpager research checkout.
-Preserve local data as needed; do not present the old harnesses as portable tests.
+The bats suite (`make test`) covers what the initial experiments checked, with self-contained fixtures in
+`tests/fixtures/reference/` and temporary output directories: complete-document tails and viewport heights,
+Unicode through Neovim's terminal emulator (`tests/helpers/roundtrip.py`), finite stdin, literal filenames,
+modelines, errors, SIGTERM/SIGINT/SIGKILL cleanup, source immutability, the Landlock sandbox, per-language
+code-token colors (`tests/helpers/languages.py`, which reads the theme's String color instead of hardcoding it),
+and a real fzf session (`tests/helpers/fzf_session.py`). The original harnesses and captures were removed.
 
 ## Mixed-file fzf routing
 
-In an existing preview script, retain binary, audio, and directory handlers. Route text extensions
-`.md`, `.markdown`, `.mdown`, `.mkd`, `.mkdn`, and `.mdwn` to `mdpreview --all` with case-insensitive
-matching. Keep bat's selected theme for other text. Falling back to bat if Markdown rendering is unavailable
-or exceeds the prototype limits keeps the preview useful.
-
-`MDPREVIEW_BIN` can select the Markdown executable. The local integration in `~/.fzf/core/preview.sh` searches PATH, then
-`$HOME/git/mdpreview/mdpreview`. Configure fzf's `resize:refresh-preview` binding to rerender at a new width;
-the file-routing script cannot configure the parent fzf process.
+Use the generated `mdpreview-dispatch` (see the README): it routes Markdown and the filetypes in
+`filetypes.json` to mdpreview and everything else, plus any mdpreview failure, to bat. Configure fzf's
+`resize:refresh-preview` binding to rerender at a new width; the preview command cannot configure the parent
+fzf process.
 
 ## Other filetypes
 
-The screen decoder and ANSI exporter can be reused for other syntaxes. The current Lua profile forces Markdown
-and waits for render-markdown.nvim's render callback. Supporting standalone source files would require filetype
-detection, the matching parser, and a readiness signal independent of the Markdown plugin.
-
-Load parsers on demand so unused language support does not add parsing work to each invocation. Markdown code
-fences can already load several language parsers in one document. Measure startup, parsing, and memory separately
-before attributing latency to the number of supported languages. Bat remains the selected backend for other text.
+`filetypes.json` lists the non-Markdown filetypes; `profile.lua` highlights them with Tree-sitter when a
+highlights query is installed and with Neovim's regex syntax otherwise, and signals readiness itself instead of
+waiting for render-markdown. Parsers load on demand.
 
 ## Follow-up work
 
-- Make theme, plugin, and parser paths configurable.
-- Create a portable integration suite from the existing experiments.
-- Validate a released Neovim version and additional parser configurations.
-- Measure a persistent worker before introducing a background service.
-- Define larger-document and streaming behavior beyond the current row/input limits.
-- Retain the current input immutability, cancellation, and ANSI-output checks for any optimization.
+See [TODO.md](../TODO.md). Keep the input immutability, cancellation, and ANSI-output checks for any
+optimization, and run `benchmarks/run` after every change.

@@ -76,18 +76,18 @@ Other installed parsers are on the runtime path and may also highlight fences, b
 
 <!-- benchmark:start -->
 
-Latest run: 2026-10-31T21:08Z, version 0.5.0 (c1dac6b-dirty), load 4.55, NVIM v0.13.0-dev-1915+gc5641b2bfb. Median of 3 runs after one warm-up, 100 columns; complete output uses `--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in [benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.
+Latest run: 2026-10-31T21:14Z, version 0.5.1 (0cfb012-dirty), load 3.70, NVIM v0.13.0-dev-1915+gc5641b2bfb. Median of 3 runs after one warm-up, 100 columns; complete output uses `--all --budget 0`, viewport `--lines 40`. Averages cover all earlier runs in [benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.
 
 | Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average |
 |---|---:|---:|---|---:|---:|---:|---:|
-| [small](benchmarks/small.md) | 51 | 2 | complete | 731 | 608 | 2 | +20% |
-| [small](benchmarks/small.md) | 51 | 2 | viewport | 711 | 642 | 2 | +11% |
-| [medium](benchmarks/medium.md) | 353 | 15 | complete | 1550 | 1524 | 2 | +2% |
-| [medium](benchmarks/medium.md) | 353 | 15 | viewport | 790 | 796 | 2 | -1% |
-| [large](benchmarks/large.md) | 888 | 40 | complete | 2839 | 3047 | 2 | -7% |
-| [large](benchmarks/large.md) | 888 | 40 | viewport | 759 | 862 | 2 | -12% |
-| [code](benchmarks/code.md) | 546 | 40 | complete | 1351 | 1506 | 2 | -10% |
-| [code](benchmarks/code.md) | 546 | 40 | viewport | 800 | 845 | 2 | -5% |
+| [small](benchmarks/small.md) | 51 | 2 | complete | 440 | 649 | 3 | -32% |
+| [small](benchmarks/small.md) | 51 | 2 | viewport | 427 | 665 | 3 | -36% |
+| [medium](benchmarks/medium.md) | 353 | 15 | complete | 1155 | 1532 | 3 | -25% |
+| [medium](benchmarks/medium.md) | 353 | 15 | viewport | 711 | 794 | 3 | -10% |
+| [large](benchmarks/large.md) | 888 | 40 | complete | 2612 | 2978 | 3 | -12% |
+| [large](benchmarks/large.md) | 888 | 40 | viewport | 640 | 828 | 3 | -23% |
+| [code](benchmarks/code.md) | 546 | 40 | complete | 1005 | 1454 | 3 | -31% |
+| [code](benchmarks/code.md) | 546 | 40 | viewport | 558 | 830 | 3 | -33% |
 
 <!-- benchmark:end -->
 

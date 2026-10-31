@@ -6,6 +6,23 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-31
+
+### Added
+
+- Portable tests ported from the historical harnesses: `robustness.bats`, `languages.bats` and `fzf.bats`,
+  with Python helpers in `tests/helpers/` and self-contained reference documents in
+  `tests/fixtures/reference/`. Paths resolve from the checkout, output goes to temporary directories, child
+  processes are found through `/proc`, and the code-color check reads the theme's String color.
+
+### Removed
+
+- The historical harness scripts and their captures, and their `.gitignore` entries.
+
+### Changed
+
+- `docs/DEVELOPMENT.md` updated for dispatch, filetype support, and the test suite.
+
 ## [0.5.1] - 2026-10-31
 
 ### Added
