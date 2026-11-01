@@ -6,6 +6,35 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-31
+
+### Added
+
+- `-f`/`--follow`: the Neovim pager opens at the end of the file and reloads it as it changes (inotify plus a
+  one-second poll), staying at the end while the cursor is on the last line; `G` or `F` resumes following.
+  Truncated or replaced files reload. Needs the nvim pager, a terminal and a file; no 10 MiB limit.
+
+### Changed
+
+- The write sandbox allows writes only in the per-run `/tmp/mdpreview-*` directory instead of all of `/tmp`.
+  External pagers get that directory as `TMPDIR` and can write nowhere else (before, anywhere under `/tmp`). A child forked before the sandbox removes it when
+  mdpreview exits, so a SIGKILL no longer leaves it behind; it first stops any of the run's Neovims still
+  running (Neovim 0.12 does not exit when its run directory is removed under it).
+- The Neovim pager draws its first screen rendered using only render-markdown's public API
+  (`api.render()` and its `on.render` callback) instead of an internal updater.
+- Neovim 0.11 is the supported minimum (tested with 0.11.7 and 0.12.6); an older Neovim is refused with one
+  line instead of failing on its first parser. `tests/nvim-versions` runs the suite on released versions.
+- `tests/render.bats` skips, naming the missing dependency, when `mdpreview --check` fails, and skips by name the
+  filetypes with neither a parser nor a Vim syntax file on the machine.
+
+### Fixed
+
+- A parser file that fails to load (built for another Tree-sitter ABI, or corrupt) aborted the render with a
+  Lua error. That language now gets regex syntax (Vim's markdown syntax for a Markdown parser, plain text in a
+  code fence) and one warning naming the parser file.
+- A Tree-sitter query warning in the Neovim pager stopped at "Press ENTER" before the document was shown; it
+  is now one line on the command line naming the failed queries, with the details in `mdpreview --check`.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added

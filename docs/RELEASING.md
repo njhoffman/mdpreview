@@ -20,7 +20,8 @@ not stack several unreleased versions in the working tree; if that happens, merg
 section and release them under a single version.
 
 1. Review [TODO.md](../TODO.md), complete applicable validation, and inspect the diff for generated/private files.
-2. Run `make check-dev`, then the whole portable suite with `make test` (`bats tests/`); every test must pass.
+2. Run `make check-dev`, then the whole portable suite with `make test` (`bats tests/`), and `tests/nvim-versions`
+   for the supported released Neovim versions; every test must pass.
    Note any skips (fzf, rg, script or Neovim versions not installed) in the release commit message.
 3. Run `benchmarks/run` and check the SYNTAX.md table for regressions against the averages.
 4. Update [CHANGELOG.md](../CHANGELOG.md): move the `[Unreleased]` entries under the new version and date,

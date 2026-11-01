@@ -58,10 +58,11 @@ setup() {
 }
 
 @test "fallback output is paged like a normal render" {
-  paged=$BATS_TEST_TMPDIR/paged
-  MDPREVIEW_PAGER="sh -c 'cat > \"\$1\"' pager $paged" \
-    "$MDPREVIEW" --paging=always --columns 80 --budget 0.01 "$FIXTURES/markdown/sample.md" 2>/dev/null
-  grep -q 'Title' "$paged"
+  # The stub pager marks its output on stdout: Landlock lets it write only in the run directory.
+  MDPREVIEW_PAGER="sh -c 'echo ==PAGED==; cat'" run --separate-stderr \
+    "$MDPREVIEW" --paging=always --columns 80 --budget 0.01 "$FIXTURES/markdown/sample.md"
+  [ "${lines[0]}" = ==PAGED== ]
+  [[ $output == *'Title'* ]]
 }
 
 @test "a large table renders in full within the default budget or falls back, never errors" {

@@ -11,8 +11,9 @@ def landlock_abi():
     return abi
 
 
-def restrict_writes():
-    """Allow writes only under /tmp and to terminal devices, for this process and its children."""
+def restrict_writes(directory):
+    """Allow writes only under directory (the per-run mdpreview-* directory) and to terminal devices, for this
+    process and its children."""
     libc = ctypes.CDLL(None, use_errno=True)
     abi = landlock_abi()
     rights = (1 << 1) | sum(1 << bit for bit in range(4, 13))
@@ -33,12 +34,12 @@ def restrict_writes():
     if descriptor < 0:
         raise OSError(ctypes.get_errno(), 'Landlock ruleset creation failed')
     try:
-        for path in ['/tmp', '/dev/null', '/dev/tty', '/dev/ptmx', '/dev/pts']:
+        for path in [directory, '/dev/null', '/dev/tty', '/dev/ptmx', '/dev/pts']:
             if not os.path.exists(path):
                 continue
             handle = os.open(path, os.O_PATH | os.O_CLOEXEC)
             try:
-                allowed = rights if path == '/tmp' else ((1 << 1) | ((1 << 14) if abi >= 3 else 0))
+                allowed = rights if path == directory else ((1 << 1) | ((1 << 14) if abi >= 3 else 0))
                 rule = PathRule(allowed, handle)
                 if libc.syscall(445, descriptor, 1, ctypes.byref(rule), 0) != 0:
                     raise OSError(ctypes.get_errno(), 'Landlock path rule failed: ' + path)

@@ -9,6 +9,8 @@ first line), PAGER_MIDDLE, and PAGER_BOTTOM (on the last line). Scenarios:
   resize  a narrower terminal makes Neovim redraw; q still exits 0
   term    SIGTERM to mdpreview while the pager is open exits 130
   hup     SIGHUP to mdpreview while the pager is open exits non-zero
+  follow  --follow: appended lines appear, scrolling up pauses, G resumes, truncation reloads
+  warning a broken lua highlights query is reported on screen, the file is colored, q exits 0
 Every scenario also checks that no Neovim started by this checkout outlives mdpreview.
 Prints "ok" on success; otherwise the reason and the tail of the screen output, and exits 1.
 """
@@ -125,6 +127,67 @@ def finish(expected):
       fail(f"Neovim left running: {sorted(embedded_nvims() - baseline)}")
     time.sleep(0.05)
 
+
+if scenario == "follow-open":
+  # --follow on a large file opens at its end.
+  until("PAGER_BOTTOM", 0, "the end of the file", timeout=40)
+  press("q")
+  finish(lambda status: status == 0)
+  print("ok")
+  sys.exit(0)
+
+if scenario == "follow":
+  # --follow on a file taller than the screen: starts at the end, shows appended lines, pauses while the
+  # cursor is above the last line, resumes on G, and survives truncation.
+  # Markers start differently: Neovim redraws only changed cells, so a shared prefix may never be resent.
+  def append(text, mode="a"):
+    with open(path, mode) as handle:
+      handle.write(text + "\n")
+
+  until("PAGER_BOTTOM", 0, "the end of the file")
+  quiet()
+  start = len(captured)
+  append("APPENDED_FIRST")
+  until("APPENDED_FIRST", start, "the first appended line", timeout=5)
+  quiet()
+  if re.search(r"- item \d", plain(captured[start:])):
+    fail("the reloaded Markdown shows raw list markers")
+  press("k" * 5)
+  quiet()
+  start = len(captured)
+  append("\n".join(f"filler {i}" for i in range(30)) + "\nZEBRA_PAUSED")
+  deadline = time.monotonic() + 2.5
+  while time.monotonic() < deadline:
+    read(0.1)
+  if "ZEBRA_PAUSED" in plain(captured[start:]):
+    fail("the view followed the file while the cursor was above the last line")
+  start = press("G")
+  until("ZEBRA_PAUSED", start, "the appended lines after G")
+  quiet()
+  start = len(captured)
+  append("QUOKKA_REWRITTEN", "w")
+  until("QUOKKA_REWRITTEN", start, "the rewritten file", timeout=5)
+  press("q")
+  finish(lambda status: status == 0)
+  print("ok")
+  sys.exit(0)
+
+if scenario == "warning":
+  # A broken highlights query (MDPREVIEW_PARSER_DIR set by the caller): the document still opens with regex
+  # syntax, the warning is shown as a notification, and the keys still work.
+  until("PAGER_TOP", 0, "the first screen")
+  quiet()
+  screen = re.sub(r"\s+", " ", plain(captured))
+  if "mdpreview: lua highlights query failed (details: mdpreview --check)" not in screen:
+    fail("no query warning on the screen")
+  if "Press ENTER" in screen:
+    fail("the warning needs a key press")
+  if b"\x1b[38;2;" not in captured:
+    fail("no syntax colors")
+  press("q")
+  finish(lambda status: status == 0)
+  print("ok")
+  sys.exit(0)
 
 if scenario == "regex":
   # --syntax regex: Vim's Markdown syntax keeps the raw heading marker. Wait for a list item, which is drawn

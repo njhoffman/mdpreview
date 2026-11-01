@@ -64,7 +64,7 @@ def concise(error):
   if located:
     last = located[-1]
     text = text[last.end():] if "profile.lua:" in last.group() else text[last.start():]
-  return text.strip()
+  return re.sub(r"^Error executing lua: ", "", text.strip())
 
 
 class Timings:
@@ -272,6 +272,7 @@ class Renderer:
         cwd=temporary, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=self.stderr, start_new_session=True,
       )
+      register_child(self.process.pid)
       # --embed answers RPC at once but sources startup files only after nvim_ui_attach, so Neovim's startup
       # finishes inside the setup request; record() splits this phase with Neovim's own marks.
       channel = self.request("nvim_get_api_info")[0]
@@ -580,9 +581,75 @@ def resolve_pager(value):
 LESS_PRIVATE_USE = "e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p"
 
 
-def page(output, command):
-  # Writes outside /tmp are blocked by Landlock, so keep less from trying to save its history file.
-  environment = dict(os.environ, LESSHISTFILE="-")
+CLEANUP_PIPE = None  # Write end of run_directory()'s pipe to its cleanup child, while one is running.
+CLEANUP_GRACE = 2.0  # Seconds the cleanup child gives this run's Neovims to exit before killing them.
+
+
+def register_child(pid):
+  """Tell the cleanup child about a Neovim, so it does not outlive this process (see run_directory)."""
+  if CLEANUP_PIPE is not None:
+    os.write(CLEANUP_PIPE, f"{pid}\n".encode())
+
+
+def cleanup_child(directory, pipe):
+  """Body of run_directory()'s child: wait for the parent to exit (end-of-file on the pipe), give the
+  registered Neovims CLEANUP_GRACE seconds to exit and kill those still running, then remove the directory.
+  Neovim may stay running when its run directory is removed under it (0.12), so the order matters."""
+  pidfds, pending = [], b""
+  while chunk := os.read(pipe, 4096):
+    pending += chunk
+    *complete, pending = pending.split(b"\n")
+    for line in complete:
+      try:
+        pidfds.append(os.pidfd_open(int(line)))  # Taken while the process exists, so its PID cannot be reused.
+      except (OSError, ValueError):
+        pass  # Already gone.
+  deadline = time.monotonic() + CLEANUP_GRACE
+  for pidfd in pidfds:
+    if not select.select([pidfd], [], [], max(0, deadline - time.monotonic()))[0]:
+      try:
+        signal.pidfd_send_signal(pidfd, signal.SIGKILL)
+        select.select([pidfd], [], [], 1)
+      except OSError:
+        pass
+  shutil.rmtree(directory, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def run_directory():
+  """The per-run directory under /tmp. restrict_writes() confines writes to it, and then this process may not
+  remove it (that is a write to /tmp), so a child forked before the sandbox removes it once this process has
+  exited: its pipe reaches end-of-file on any exit, including SIGKILL. Neovims passed to register_child() are
+  stopped first."""
+  global CLEANUP_PIPE
+  directory = tempfile.mkdtemp(prefix="mdpreview-", dir="/tmp")
+  read_end, write_end = os.pipe()  # Not inherited by Neovim, bat or pagers (O_CLOEXEC).
+  if os.fork() == 0:
+    try:
+      os.setsid()  # Out of the terminal's process group: Ctrl-C and a closing terminal must not stop cleanup.
+      for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(number, signal.SIG_IGN)
+      null = os.open(os.devnull, os.O_RDWR)
+      for descriptor in (0, 1, 2):
+        os.dup2(null, descriptor)  # Release stdout, so fzf and pipes see end-of-file when mdpreview exits.
+      os.closerange(3, read_end)
+      os.closerange(read_end + 1, 1 << 16)
+      cleanup_child(directory, read_end)
+    finally:
+      os._exit(0)
+  os.close(read_end)
+  CLEANUP_PIPE = write_end
+  try:
+    yield directory
+  finally:
+    CLEANUP_PIPE = None
+    os.close(write_end)
+
+
+def page(output, command, temporary):
+  # Landlock allows writes only in the run directory: make it the pager's TMPDIR, and keep less from trying to
+  # save its history file.
+  environment = dict(os.environ, LESSHISTFILE="-", TMPDIR=temporary)
   environment.setdefault("LESSUTFCHARDEF", LESS_PRIVATE_USE)
   previous = signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl-C belongs to the pager, as with git.
   try:
@@ -597,11 +664,27 @@ def page(output, command):
     signal.signal(signal.SIGINT, previous)
 
 
-def page_nvim(executable, paths, temporary, path, filetype, syntax):
+MIN_NVIM = (0, 11)  # Also checked by profile.lua's setup(), which covers every other path.
+
+
+def require_nvim_version(executable):
+  """Raise PreviewError for a Neovim older than MIN_NVIM. Used before the pager: an error in its -c command
+  would wait for a key on a cleared screen instead of reaching stderr."""
+  try:
+    first = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=10).stdout
+  except (OSError, subprocess.SubprocessError):
+    return  # Starting Neovim itself reports these.
+  found = re.match(r"NVIM v(\d+)\.(\d+)\.\S*", first)
+  if found and (int(found[1]), int(found[2])) < MIN_NVIM:
+    raise PreviewError(f"Neovim {'.'.join(map(str, MIN_NVIM))} or later is required, found {found[0][6:]}")
+
+
+def page_nvim(executable, paths, temporary, path, filetype, syntax, follow=False):
   """Open the document in a read-only Neovim on this terminal (q quits); return Neovim's exit status."""
+  require_nvim_version(executable)
   env = isolated_environment(temporary)
   env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype,
-                                           "syntax": syntax})
+                                           "syntax": syntax, "follow": follow})
   command = nvim_command(executable, "-c", "lua mdpreview.pager(vim.json.decode(vim.env.MDPREVIEW_SESSION))")
   # Keys come from the terminal even when the document came from stdin.
   keyboard = None if sys.stdin.isatty() else open("/dev/tty", "rb")
@@ -610,6 +693,7 @@ def page_nvim(executable, paths, temporary, path, filetype, syntax):
   process = None
   try:
     process = subprocess.Popen(command, cwd=temporary, env=env, stdin=keyboard)
+    register_child(process.pid)
     return process.wait()
   finally:
     signal.signal(signal.SIGINT, previous)
@@ -670,6 +754,9 @@ def main():
                       "Neovim and the output is taller than the screen")
   parser.add_argument("-c", "--cat", dest="paging", action="store_const", const="never",
                       help="Print without paging; the same as --paging=never (the last of the two wins)")
+  parser.add_argument("-f", "--follow", action="store_true",
+                      help="Page the file and reload it as it changes, staying at the end while the cursor is on "
+                      "the last line (like less +F). Needs the nvim pager, a terminal and a file")
   parser.add_argument("--pager", help="nvim (built-in Neovim pager), less (less -R), or a pager command line; "
                       "defaults to the configured pager (MDPREVIEW_PAGER), then nvim")
   parser.add_argument("--budget", type=float, default=5.0,
@@ -733,7 +820,7 @@ def run(args, timings):
     all_rows = True
   paths = find_paths(settings)
   start = timings.since("config", start)
-  with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
+  with run_directory() as temporary:
     if str(args.file) == "-":
       path = Path(temporary) / "stdin.md"
       with open(path, "wb") as handle:
@@ -745,13 +832,27 @@ def run(args, timings):
     filetype = resolve_filetype(args.filetype, None if str(args.file) == "-" else args.file)
     timings.since("input and filetype", start)
     viewport = None if all_rows else height
+    if args.follow:
+      if str(args.file) == "-":
+        raise PreviewError("--follow needs a file, not stdin")
+      if pager != "nvim":
+        raise PreviewError("--follow needs the nvim pager (--pager nvim)")
+      if args.paging == "never" or args.lines or args.start_line != 1:
+        raise PreviewError("--follow pages the whole file; it cannot be combined with --paging=never, --lines "
+                           "or --start-line")
+      if not sys.stdout.isatty():
+        raise PreviewError("--follow needs a terminal on stdout")
+      # The pager has no grid or row limits, and a followed log may grow past MAX_BYTES.
+      restrict_writes(temporary)
+      timings.facts["pager"] = "nvim (not timed)"
+      return page_nvim(settings["nvim"], paths, temporary, path, filetype, args.syntax, follow=True)
     size = path.stat().st_size
     if size > MAX_BYTES:
       error = TooLarge(f"input is {size / 1048576:.1f} MiB, over the {MAX_BYTES // 1048576} MiB limit")
       output = fall_back(error, args, path, width, filetype, viewport, timings)
-      return emit(output, args, all_rows, pager, timings, fallback=True)
+      return emit(output, args, all_rows, pager, timings, temporary, fallback=True)
     if pager == "nvim" and wants_pager(args.paging, all_rows) and sys.stdout.isatty():
-      restrict_writes()
+      restrict_writes(temporary)
       if args.paging == "auto":
         # Probe with one screen: a document that fits is printed as is, a taller one opens the pager.
         lines = shutil.get_terminal_size().lines
@@ -763,7 +864,7 @@ def run(args, timings):
           if renderer:
             renderer.close()
           output = fall_back(error, args, path, width, filetype, None, timings)
-          return emit(output, args, all_rows, pager, timings, fallback=True)
+          return emit(output, args, all_rows, pager, timings, temporary, fallback=True)
         finally:
           if renderer:
             renderer.close()
@@ -779,7 +880,7 @@ def run(args, timings):
       with open(path, "rb") as handle:
         source_rows = sum(chunk.count(b"\n") for chunk in iter(lambda: handle.read(1 << 16), b"")) + 1
       height = max(height, min(MAX_ROWS, source_rows + 4))
-    restrict_writes()
+    restrict_writes(temporary)
     renderer = None
     fallback = False
     try:
@@ -793,7 +894,8 @@ def run(args, timings):
     finally:
       if renderer:
         renderer.close()
-  return emit(output, args, all_rows, pager, timings, fallback)
+    # Inside the run directory's lifetime: an external pager gets it as TMPDIR, the only place it may write.
+    return emit(output, args, all_rows, pager, timings, temporary, fallback)
 
 
 def fall_back(error, args, path, width, filetype, viewport, timings, start_line=1):
@@ -812,16 +914,16 @@ def fall_back(error, args, path, width, filetype, viewport, timings, start_line=
   return output
 
 
-def emit(output, args, all_rows, pager, timings, fallback=False):
+def emit(output, args, all_rows, pager, timings, temporary, fallback=False):
   if should_page(args.paging, all_rows, output):
     if pager == "nvim":
       if fallback and sys.stdout.isatty():  # bat's output is ANSI text, which the Neovim pager cannot show.
-        return page(output, resolve_pager("less"))
+        return page(output, resolve_pager("less"), temporary)
       # --paging=always without a terminal: nothing to show a pager on, so print.
       sys.stdout.buffer.write(output)
       sys.stdout.buffer.flush()
       return 0
-    return page(output, pager)
+    return page(output, pager, temporary)
   with timings.phase("write output"):
     sys.stdout.buffer.write(output)
     sys.stdout.buffer.flush()

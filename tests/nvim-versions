@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Run the test suite against released Neovim versions, downloaded from GitHub releases into a cache.
+#
+#   tests/nvim-versions                      # the default versions below, the default test files
+#   tests/nvim-versions v0.11.7              # one version
+#   tests/nvim-versions -- tests/render.bats # other bats arguments
+#   tests/nvim-versions --list               # the default versions
+#
+# Each version runs with its nvim first on PATH and as MDPREVIEW_NVIM. Your parsers, queries, theme and
+# render-markdown are used as configured, so a failure can come from them as well as from Neovim: parsers
+# built for a newer Tree-sitter ABI do not load in older Neovim. Downloads are checked against the SHA-256
+# digests pinned here; another version needs MDPREVIEW_NVIM_SHA256=<digest>. Cache:
+# ${XDG_CACHE_HOME:-~/.cache}/mdpreview/nvim/<version>. Prints one summary line per version; exits 1 if any
+# version failed.
+
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/mdpreview/nvim
+# 0.10.4 stays pinned below for the minimum-version test (dependencies.bats); mdpreview refuses it.
+DEFAULT_VERSIONS=(v0.11.7 v0.12.6)
+DEFAULT_TESTS=(version config render robustness dependencies inputs fallback paging pager timings languages)
+
+# version/arch -> sha256 of nvim-linux-<arch>.tar.gz
+declare -A SHA256=(
+  [v0.10.4/x86_64]=95aaa8e89473f5421114f2787c13ae0ec6e11ebbd1a13a1bd6fcf63420f8073f
+  [v0.10.4/arm64]=c819bf47a9878013ba35ceae87125dd170ede4a72844d049fb35f781045872eb
+  [v0.11.7/x86_64]=38a7c6317f94503841096c00e8fde05ef04b9472fc9d7d62b6e033cecd6f7991
+  [v0.11.7/arm64]=99bb3c53604e83ce18fc0b459e34cf1a5e212f4e5fbe2eb136b3c18092ae9905
+  [v0.12.6/x86_64]=474430d53e6264f6d6dd18db42d6dc9df3a1b56ca9e88a325bbf860e1a811d87
+  [v0.12.6/arm64]=8f1f64a0bdb97247034038c3823c6cbad5bdf9ecd5751b85494b71c3ee04c815
+)
+
+die() { echo "nvim-versions: $*" >&2; exit 2; }
+
+versions=()
+bats_args=()
+while (($#)); do
+  case $1 in
+    --list) printf '%s\n' "${DEFAULT_VERSIONS[@]}"; exit 0 ;;
+    -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    --) shift; bats_args=("$@"); break ;;
+    v[0-9]*) versions+=("$1") ;;
+    *) die "unknown argument: $1 (versions look like v0.11.7; bats arguments go after --)" ;;
+  esac
+  shift
+done
+((${#versions[@]})) || versions=("${DEFAULT_VERSIONS[@]}")
+if ((${#bats_args[@]} == 0)); then
+  for name in "${DEFAULT_TESTS[@]}"; do bats_args+=("$ROOT/tests/$name.bats"); done
+fi
+
+case $(uname -m) in
+  x86_64) arch=x86_64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) die "no Neovim release build for $(uname -m)" ;;
+esac
+[ "$(uname -s)" = Linux ] || die "Linux only (mdpreview needs Landlock)"
+command -v curl >/dev/null || die "curl is required"
+command -v bats >/dev/null || die "bats is required"
+
+# Print the nvim executable of version, downloading and unpacking it on first use.
+install() {
+  local version=$1 directory=$CACHE/$1 archive expected actual
+  if [ -x "$directory/bin/nvim" ]; then
+    echo "$directory/bin/nvim"
+    return
+  fi
+  expected=${SHA256[$version/$arch]:-${MDPREVIEW_NVIM_SHA256:-}}
+  [ -n "$expected" ] || die "no pinned digest for $version/$arch; set MDPREVIEW_NVIM_SHA256"
+  mkdir -p "$CACHE"
+  archive=$(mktemp "$CACHE/download.XXXXXX")
+  trap 'rm -f "$archive"' RETURN
+  echo "downloading Neovim $version ($arch)" >&2
+  curl -fsSL --retry 2 -o "$archive" \
+    "https://github.com/neovim/neovim/releases/download/$version/nvim-linux-$arch.tar.gz" ||
+    die "download of $version failed"
+  actual=$(sha256sum "$archive" | cut -d' ' -f1)
+  [ "$actual" = "$expected" ] || die "$version: SHA-256 $actual does not match the pinned $expected"
+  rm -rf "$directory.partial"
+  mkdir -p "$directory.partial"
+  tar -xzf "$archive" -C "$directory.partial" --strip-components=1
+  mv "$directory.partial" "$directory"
+  echo "$directory/bin/nvim"
+}
+
+status=0
+summary=()
+for version in "${versions[@]}"; do
+  nvim=$(install "$version")
+  log=$CACHE/$version.log
+  echo "== $version: $("$nvim" --version | head -1)" >&2
+  if PATH=$(dirname "$nvim"):$PATH MDPREVIEW_NVIM=$nvim bats "${bats_args[@]}" > "$log" 2>&1; then
+    result=passed
+  else
+    result=failed
+    status=1
+  fi
+  counts=$(grep -cE '^ok ' "$log" || true)/$(grep -cE '^(not )?ok ' "$log" || true)
+  summary+=("$(printf '%-8s %-6s %s ok, %s skipped  %s' "$version" "$result" "$counts" \
+    "$(grep -cE '^ok .* # skip' "$log" || true)" "$log")")
+  grep -E '^not ok ' "$log" | sed "s/^/  $version: /" >&2 || true
+done
+printf '%s\n' "${summary[@]}"
+exit "$status"

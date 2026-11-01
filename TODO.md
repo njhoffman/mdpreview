@@ -14,8 +14,11 @@ Reviewed: 2026-10-31
 - [x] (p2) [test] Add self-contained fixtures for Markdown structures, all supported code languages, aliases, Unicode, and long lines.
 - [x] (p2) [test] Retain checks for complete-document tails, stdin, unusual filenames, modelines, cancellation, and source immutability.
 - [x] (p2) [test] Exercise parser/query mismatches and missing dependencies with actionable errors.
-- [ ] (p2) [test] Test released Neovim versions and declare the supported minimum.
-- [ ] **Landlock allows writes to all of /tmp.** (p3) [refactor] `readonly.py` grants full write rights on
+- [x] (p2) [test] Test released Neovim versions and declare the supported minimum.
+  0.11 (`tests/nvim-versions`); 0.10 cannot load current ABI-15 parsers and is refused in one line.
+- [ ] **`--check` with any other option demands a file.** (p3) [bug] Only a bare `--check` (and `--check --all`)
+  bypasses argparse's required `file`, so `mdpreview --check --nvim X` fails with a usage error.
+- [x] **Landlock allows writes to all of /tmp.** (p3) [refactor] `readonly.py` grants full write rights on
   `/tmp` rather than only the per-run `mdpreview-*` directory; scope the rule to that directory.
 - [x] (p2) [docs] Document the Linux/Landlock requirement and remove experiment-only helper entrypoints.
 
@@ -53,6 +56,10 @@ Reviewed: 2026-10-31
 
 ## Replacing nvimpager
 
+- [ ] **Remove the old nvimpager on or after 2026-11-07.** (p2) [chore] With the rename to nvcat (0.10.0)
+  its aliases and scripts move to nvcat (`vimcat`/`vc`, `vimpage`, `vimtail`/`vt`, fzf-tab, lesspipe, tmux
+  `viewer.sh`); nvimpager stays installed for a week as a fallback. Then delete `~/.config/nvimpager`, `~/.shell/deploy/recipes/nvimpager.sh` and the
+  installed binary, and untrack them in dotbare.
 - [ ] **Replace nvimpager uses and aliases with mdpreview.** (p2) [chore] Depends on paging mode below.
   `~/.shell/aliases/nvimpager.sh` defines `nvimpager` (wrapper), `vimcat`/`vc`, `vimpage`, `vimtail`/`vt`
   (`vt.nvim-log`, `vt.syslog`, ...), `vc.syn FT`, and `vc.tmux-keys` (stdin with `ft=tmux`). Other callers:
@@ -69,13 +76,14 @@ Reviewed: 2026-10-31
 - [x] **Embedded Neovim pager.** (p3) [feature] Done in 0.6.0 as the default `--pager nvim`: Neovim runs on the
   terminal with the same profile (no RPC attach needed), read-only, with live render-markdown, search,
   re-wrap on resize, and less-style keys; `--pager less` or `pager = "less"` keeps less.
-- [ ] **Follow mode in the Neovim pager.** (p3) [feature] A tail/follow mode (`:checktime` on a timer, keep the
-  view at the end) to replace `vimtail`; see the nvimpager item above.
-- [ ] **The Neovim pager relies on render-markdown internals for its first frame.** (p3) [refactor]
+- [x] **Follow mode in the Neovim pager.** (p3) [feature] A tail/follow mode (`:checktime` on a timer, keep the
+  view at the end) to replace `vimtail`; see the nvimpager item above. Done: `-f`/`--follow` (inotify plus a
+  1 s poll). Not done: following with `--pager less`, which only ever receives finished output.
+- [x] **The Neovim pager relies on render-markdown internals for its first frame.** (p3) [refactor]
   `profile.lua` calls `require("render-markdown.core.ui").updater.new(...):run()` so the first frame is
   rendered; `update()` defers through `vim.schedule` and shows raw text once. Falls back to `update()` if the
   internal changes; ask upstream for a synchronous render API.
-- [ ] **Pager query warnings are untested.** (p3) [test] `M.pager` in `profile.lua` shows Tree-sitter query
+- [x] **Pager query warnings are untested.** (p3) [test] `M.pager` in `profile.lua` shows Tree-sitter query
   warnings with `vim.notify`, but `tests/pager.bats` never breaks a query. Add a case with a broken
   `queries/lua/highlights.scm` under `MDPREVIEW_PARSER_DIR` and assert the notification and the regex fallback.
 - [x] **Auto paging by default.** (p2) [feature] Decided: `--paging=auto|always|never` (matching bat), default
@@ -153,5 +161,5 @@ Reviewed: 2026-10-31
 - [ ] **Dispatch carries machine-specific paths.** (p3) [chore] `mdpreview-dispatch` embeds bat's version and
   `--map-syntax`/home-directory globs from this machine's bat config; another machine must run
   `./gen-dispatch`, and `tests/dispatch.bats` fails until it does.
-- [ ] **Render tests depend on this machine's Neovim setup.** (p2) [test] `tests/render.bats` needs the
+- [x] **Render tests depend on this machine's Neovim setup.** (p2) [test] `tests/render.bats` needs the
   personal parsers and theme; skip it with a clear message when `find_paths()` reports missing dependencies.

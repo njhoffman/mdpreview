@@ -19,14 +19,17 @@ Runtime (`make check`, or `mdpreview --check`, verifies these and prints the ver
 | Linux with Landlock | yes | kernel 6.17, ABI 7 | x86-64 |
 | Python | yes | 3.13.7 | 3.11 or later (`tomllib`); run as `/usr/bin/python3` |
 | msgpack (Python) | yes | 1.0.3 | `apt install python3-msgpack`, or `make deps` (pip, user install) |
-| Neovim | yes | v0.13.0-dev-1915+gc5641b2bfb | released versions not yet verified |
+| Neovim | yes | 0.11.7, 0.12.6, v0.13.0-dev-1915+gc5641b2bfb | 0.11 or later; older versions are refused. `tests/nvim-versions` runs the suite on released versions |
 | render-markdown.nvim | yes | v8.14.0-2-g8e87953 | any plugin manager; found under `plugin_dirs` |
 | mini.icons | no | v0.18.0-5-g9e4c164 | icons need a Nerd Font |
 | Tree-sitter parsers | no | | Neovim bundles markdown and markdown_inline; code fences and other filetypes need their parsers |
 | bat | no | 0.26.1 | fallback renderer and `mdpreview-dispatch` |
 | less | no | 668 | `--pager less` (the default pager is the built-in Neovim one) |
 
-Development (`make check-dev`): bats 1.5 or later, `script` (util-linux), fzf, git.
+Development (`make check-dev`): bats 1.5 or later, `script` (util-linux), fzf, git; curl for `tests/nvim-versions`.
+
+Tree-sitter parsers must match the Neovim that loads them: a parser built for a newer Tree-sitter ABI (or
+any parser file that fails to load) gives one warning and regex syntax for that language instead of an error.
 
 Dependencies are read from an existing installation; no plugin manager runs.
 
@@ -135,8 +138,14 @@ The pager is chosen by `--pager`, else the `pager` config key (`MDPREVIEW_PAGER`
   scroll half a page. `--columns` does not apply: the pager uses the terminal's width. In auto mode,
   mdpreview first renders one screen to measure the document, so a short document is printed instead of
   opening the pager. When stdout is not a terminal, `--paging=always` prints.
+
+  `-f`/`--follow` opens the pager at the end of the file and reloads it as it changes, like `less +F` or
+  `tail -f`: while the cursor is on the last line the view stays at the end; moving up pauses that and `G` or
+  `F` resumes it. A truncated, replaced or recreated file is reloaded. It needs the `nvim` pager, a terminal
+  and a file (not stdin), cannot be combined with `--paging=never`, `--lines` or `--start-line`, and is not
+  subject to the 10 MiB input limit.
 - **`less`**: the rendered output is piped into `less -R` (`$LESS` applies). less runs with
-  `LESSHISTFILE=-` because Landlock blocks writes outside `/tmp`, and with
+  `LESSHISTFILE=-` because Landlock blocks writes outside the run directory, and with
   `LESSUTFCHARDEF=e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p` (unless you set your own) so it shows Nerd Font
   icons in the Private Use Areas instead of `<U+F0CA3>`.
 - **any other value**: a pager command line that reads ANSI text on stdin, run like less.
@@ -297,7 +306,9 @@ Python starts a private embedded Neovim with `profile.lua`, temporary XDG direct
 disabled. The profile loads selected editor settings and parser/query pairs. After render-markdown signals
 readiness, Python converts the RGB screen grid into ANSI output and closes Neovim.
 
-`readonly.py` restricts filesystem writes with Linux Landlock. The query extension handles C++ fence labels.
+`readonly.py` restricts filesystem writes with Linux Landlock to the per-run `/tmp/mdpreview-*` directory
+(and terminal devices), which is also `TMPDIR` for Neovim and external pagers. A small child forked before
+the sandbox removes that directory once mdpreview exits, however it exits. The query extension handles C++ fence labels.
 Each invocation starts a new Neovim; there is no persistent worker. Width is limited to 10–500 columns;
 input over 10 MiB and complete output over 1,000 screen rows fall back to bat (see
 [Limits and fallback](#limits-and-fallback)). A viewport still loads the whole input file.

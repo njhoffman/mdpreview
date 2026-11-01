@@ -1,7 +1,17 @@
 #!/usr/bin/env bats
-# End-to-end rendering through Neovim. Needs the local Neovim, parsers, and theme (see README).
+# End-to-end rendering through Neovim. Skipped when mdpreview --check reports missing required dependencies;
+# filetypes with neither a parser nor a Vim syntax file here are skipped by name.
 
 bats_require_minimum_version 1.5.0
+
+setup_file() {
+  local report
+  report=$("$BATS_TEST_DIRNAME/../mdpreview" --check 2>&1) ||
+    skip "mdpreview --check failed: $(grep -E '^(error|  error)' <<<"$report" | head -3 | tr '\n' ' ')"
+  # Languages --check shows with regex syntax (no parser or highlights query on this machine).
+  REGEX_LANGS=" $(sed -n 's/^  regex syntax *\([^(]*\).*/\1/p' <<<"$report" | tr -d ',') "
+  export REGEX_LANGS
+}
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
@@ -16,17 +26,32 @@ colors() {
 render_entry() {
   local filetype=$1 file
   file=$(find "$FIXTURES/$filetype" -type f ! -name Chart.yaml ! -name 'plain.*' | sort | head -1)
-  run "$MDPREVIEW" --columns 80 --all --filetype "$filetype" -- "$file"
+  run "$MDPREVIEW" --columns 80 --all --filetype "$filetype" -- "$file" < /dev/null
   [ "$status" -eq 0 ] || { echo "$filetype: $output"; return 1; }
-  [ "$(colors "$output")" -ge 3 ] || { echo "$filetype: only $(colors "$output") colors"; return 1; }
+  checked=$((checked + 1))
+  if [ "$(colors "$output")" -lt 3 ]; then
+    # Regex syntax without a Vim syntax file for it: nothing to highlight with on this machine.
+    if [[ $REGEX_LANGS == *" $2 "* ]]; then
+      unsupported+=("$filetype")
+      return 0
+    fi
+    echo "$filetype: only $(colors "$output") colors"
+    return 1
+  fi
 }
 
 @test "every filetype entry renders with highlighting" {
-  for filetype in $(python3 -c '
+  unsupported=()
+  checked=0
+  while read -r filetype lang; do
+    render_entry "$filetype" "$lang"
+  done < <(python3 -c '
 import sys; sys.path.insert(0, sys.argv[1]); import filetypes
-print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT"); do
-    render_entry "$filetype"
-  done
+for e in filetypes.load(): print(e["filetype"], e.get("lang", e["filetype"]))' "$ROOT")
+  [ "$checked" -eq "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import filetypes; print(len(filetypes.load()))' "$ROOT")" ]
+  if ((${#unsupported[@]})); then
+    skip "the rest rendered; no parser or Vim syntax here for: ${unsupported[*]}"
+  fi
 }
 
 @test "regex-syntax filetypes highlight comments" {

@@ -111,3 +111,59 @@ break_query() {  # lang [name]
   [ "$status" -eq 1 ]
   [ "$output" = 'mdpreview: Requested line exceeds document length (1)' ]
 }
+
+# A parser file that exists but cannot be loaded (wrong ABI, corrupt): here a file that is not a shared object.
+break_parser() {
+  echo 'not a shared object' > "$BROKEN/parser/$1.so"
+}
+
+@test "a parser that fails to load falls back to regex syntax with one warning" {
+  break_parser lua
+  MDPREVIEW_PARSER_DIR=$BROKEN run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 --timings-json \
+    "$BATS_TEST_TMPDIR/sample.lua"
+  [ "$status" -eq 0 ] || { echo "$stderr"; return 1; }
+  [[ $(plain "$output") == *'local x = 1'* ]]
+  [[ $output == *$'\e[0;38;2;'* ]]
+  warning=$(grep '^mdpreview: warning:' <<<"$stderr")
+  [ "$(wc -l <<<"$warning")" -eq 1 ]
+  [[ $warning == *"lua parser failed to load: "*"$BROKEN/parser/lua.so"*'; reinstall it (see parser_dir in mdpreview --check)' ]]
+  [[ $stderr == *'"engine": "syntax"'* ]]
+}
+
+@test "a code fence whose parser fails to load leaves the rest rendered" {
+  break_parser lua
+  MDPREVIEW_PARSER_DIR=$BROKEN run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 --timings-json \
+    "$BATS_TEST_TMPDIR/sample.md"
+  [ "$status" -eq 0 ] || { echo "$stderr"; return 1; }
+  [[ $(plain "$output") == *'local y = 2'* ]]
+  [[ $(plain "$output") != *'# Heading'* ]]
+  [ "$(grep -c '^mdpreview: warning: lua parser failed to load' <<<"$stderr")" -eq 1 ]
+  [[ $stderr == *'"engine": "render-markdown"'* ]]
+}
+
+@test "a Markdown parser that fails to load shows Vim's markdown syntax" {
+  break_parser markdown
+  MDPREVIEW_PARSER_DIR=$BROKEN run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 --timings-json \
+    "$BATS_TEST_TMPDIR/sample.md"
+  [ "$status" -eq 0 ] || { echo "$stderr"; return 1; }
+  [[ $(plain "$output") == *'# Heading'* ]]
+  [[ $stderr == *'mdpreview: warning: markdown parser failed to load'* ]]
+  [[ $stderr == *'"engine": "syntax"'* ]]
+  [[ $stderr != *traceback* ]]
+}
+
+@test "the pager refuses a Neovim older than 0.11 in one line" {
+  printf '#!/bin/sh\necho "NVIM v0.10.4"\n' > "$BATS_TEST_TMPDIR/nvim"
+  chmod +x "$BATS_TEST_TMPDIR/nvim"
+  run script -qec "'$MDPREVIEW' --nvim '$BATS_TEST_TMPDIR/nvim' --paging=always '$BATS_TEST_TMPDIR/sample.md'" /dev/null
+  [ "$status" -eq 1 ]
+  [[ $output == *'mdpreview: Neovim 0.11 or later is required, found 0.10.4'* ]]
+}
+
+@test "rendering refuses a Neovim older than 0.11 in one line" {
+  old=${XDG_CACHE_HOME:-$HOME/.cache}/mdpreview/nvim/v0.10.4/bin/nvim
+  [ -x "$old" ] || skip "Neovim 0.10.4 not cached (tests/nvim-versions v0.10.4 downloads it)"
+  run --separate-stderr "$MDPREVIEW" --nvim "$old" --paging=never --columns 60 "$BATS_TEST_TMPDIR/sample.md"
+  [ "$status" -eq 1 ]
+  [[ $stderr == 'mdpreview: Neovim 0.11 or later is required, found 0.10.4'* ]]
+}

@@ -9,11 +9,17 @@ setup() {
   MDPREVIEW=$ROOT/mdpreview
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
   unset NVIM FZF_PREVIEW_COLUMNS FZF_PREVIEW_LINES
-  PAGED=$BATS_TEST_TMPDIR/paged
   LONG=$BATS_TEST_TMPDIR/long.md
   for i in $(seq 1 60); do echo "- line $i"; done > "$LONG"
-  export MDPREVIEW_PAGER="sh -c 'cat > \"\$1\"' pager $PAGED"
+  # The stub pager marks its output: Landlock lets a pager write only in mdpreview's run directory, which is
+  # gone after the run, so it reports on stdout instead of in a file.
+  export MDPREVIEW_PAGER="sh -c 'echo ==PAGED==; cat'"
 }
+
+paged() { [[ $output == *'==PAGED=='* ]]; }
+
+# Bytes the stub pager received, from a file holding mdpreview's stdout (the marker is its first line).
+pager_input() { [ "$(head -1 "$1")" = ==PAGED== ] && tail -n +2 "$1"; }
 
 # Run a command in a 10x80 pseudo-terminal.
 in_pty() {
@@ -23,42 +29,42 @@ in_pty() {
 @test "auto pages a long document on a terminal" {
   in_pty "'$MDPREVIEW' '$LONG'"
   [ "$status" -eq 0 ]
-  [ -f "$PAGED" ]
-  [ "$(grep -c 'line' "$PAGED")" -eq 60 ]
+  paged
+  [ "$(grep -c 'line' <<<"${output#*==PAGED==}")" -eq 60 ]
 }
 
 @test "auto prints a document that fits the terminal" {
   in_pty "'$MDPREVIEW' '$FIXTURES/markdown/sample.md'"
   [ "$status" -eq 0 ]
-  [ ! -e "$PAGED" ]
+  ! paged
   [[ $output == *Title* ]]
 }
 
 @test "auto prints when stdout is not a terminal" {
   run "$MDPREVIEW" --columns 80 "$LONG"
   [ "$status" -eq 0 ]
-  [ ! -e "$PAGED" ]
+  ! paged
   [ "${#lines[@]}" -eq 60 ]
 }
 
 @test "auto prints inside fzf previews" {
   in_pty "FZF_PREVIEW_COLUMNS=80 '$MDPREVIEW' --all '$LONG'"
-  [ ! -e "$PAGED" ]
+  ! paged
 }
 
 @test "auto prints inside Neovim terminals (Telescope)" {
   in_pty "NVIM=/tmp/nvim.sock '$MDPREVIEW' '$LONG'"
-  [ ! -e "$PAGED" ]
+  ! paged
 }
 
 @test "auto prints a viewport instead of paging it" {
   in_pty "'$MDPREVIEW' --lines 5 '$LONG'"
-  [ ! -e "$PAGED" ]
+  ! paged
 }
 
 @test "never prints on a terminal" {
   in_pty "'$MDPREVIEW' --paging=never '$LONG'"
-  [ ! -e "$PAGED" ]
+  ! paged
   [[ $output == *'line 60'* ]]
 }
 
@@ -66,29 +72,29 @@ in_pty() {
   for flag in -c --cat; do
     in_pty "'$MDPREVIEW' $flag '$LONG'"
     [ "$status" -eq 0 ]
-    [ ! -e "$PAGED" ]
+    ! paged
     [[ $output == *'line 60'* ]]
   done
 }
 
 @test "the last of --cat and --paging wins" {
   in_pty "'$MDPREVIEW' --cat --paging=always '$LONG'"
-  [ -f "$PAGED" ]
-  rm "$PAGED"
+  paged
   in_pty "'$MDPREVIEW' --paging=always --cat '$LONG'"
-  [ ! -e "$PAGED" ]
+  ! paged
   [[ $output == *'line 60'* ]]
 }
 
 @test "always pages the same bytes that never prints" {
-  "$MDPREVIEW" --columns 80 --paging=always "$LONG"
+  "$MDPREVIEW" --columns 80 --paging=always "$LONG" > "$BATS_TEST_TMPDIR/out"
   "$MDPREVIEW" --columns 80 --paging=never "$LONG" > "$BATS_TEST_TMPDIR/printed"
-  cmp "$PAGED" "$BATS_TEST_TMPDIR/printed"
+  [ "$(head -1 "$BATS_TEST_TMPDIR/out")" = ==PAGED== ]
+  cmp <(pager_input "$BATS_TEST_TMPDIR/out") "$BATS_TEST_TMPDIR/printed"
 }
 
 @test "always pages short documents and non-Markdown files" {
-  "$MDPREVIEW" --columns 80 --paging=always "$FIXTURES/kdl/config.kdl"
-  [ "$(grep -c 'package' "$PAGED")" -eq 1 ]
+  "$MDPREVIEW" --columns 80 --paging=always "$FIXTURES/kdl/config.kdl" > "$BATS_TEST_TMPDIR/out"
+  [ "$(pager_input "$BATS_TEST_TMPDIR/out" | grep -c 'package')" -eq 1 ]
 }
 
 @test "always rejects viewport options" {
@@ -99,23 +105,23 @@ in_pty() {
   [ "$status" -eq 1 ]
 }
 
-@test "the pager gets LESSHISTFILE=- because Landlock blocks writes outside /tmp" {
-  MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSHISTFILE\" > \"\$1\"; cat > /dev/null' pager $PAGED" \
-    "$MDPREVIEW" --columns 80 --paging=always "$LONG"
-  [ "$(cat "$PAGED")" = - ]
+@test "the pager gets LESSHISTFILE=- because Landlock blocks writes outside the run directory" {
+  MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSHISTFILE\"; cat > /dev/null'" run "$MDPREVIEW" --columns 80 \
+    --paging=always "$LONG"
+  [ "$output" = - ]
 }
 
 @test "the pager gets LESSUTFCHARDEF marking Private Use Area glyphs printable" {
   unset LESSUTFCHARDEF
-  MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\" > \"\$1\"; cat > /dev/null' pager $PAGED" \
-    "$MDPREVIEW" --columns 80 --paging=always "$LONG"
-  [ "$(cat "$PAGED")" = 'e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p' ]
+  MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\"; cat > /dev/null'" run "$MDPREVIEW" --columns 80 \
+    --paging=always "$LONG"
+  [ "$output" = 'e000-f8ff:p,f0000-ffffd:p,100000-10fffd:p' ]
 }
 
 @test "a LESSUTFCHARDEF of the user's own is kept" {
-  LESSUTFCHARDEF=e000-e0ff:w MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\" > \"\$1\"; cat > /dev/null' pager $PAGED" \
-    "$MDPREVIEW" --columns 80 --paging=always "$LONG"
-  [ "$(cat "$PAGED")" = e000-e0ff:w ]
+  LESSUTFCHARDEF=e000-e0ff:w MDPREVIEW_PAGER="sh -c 'printf %s \"\$LESSUTFCHARDEF\"; cat > /dev/null'" \
+    run "$MDPREVIEW" --columns 80 --paging=always "$LONG"
+  [ "$output" = e000-e0ff:w ]
 }
 
 @test "less shows Nerd Font heading icons, not <U+XXXX>" {

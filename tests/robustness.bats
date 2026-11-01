@@ -100,7 +100,9 @@ nvims() {
 cancel_during_render() {
   local signal=$1 before after pid
   before=$(nvims)
-  "$MDPREVIEW" --paging=never --columns 100 --all --budget 0 "$ROOT/benchmarks/large.md" >/dev/null 2>&1 &
+  source "$HELPERS/slow_input.sh"
+  slow_input "$BATS_TEST_TMPDIR/slow.md"
+  "$MDPREVIEW" --paging=never --columns 100 --lines 40 --timeout 60 "$BATS_TEST_TMPDIR/slow.md" >/dev/null 2>&1 &
   pid=$!
   for _ in $(seq 1 100); do
     [ "$(nvims)" != "$before" ] && break
@@ -140,22 +142,98 @@ cancel_during_render() {
   [ "$before" = "$after" ]
 }
 
-@test "the write sandbox blocks writes outside /tmp and allows them inside" {
-  run python3 - "$ROOT" "$BATS_TEST_TMPDIR" <<'PY'
+@test "the write sandbox allows writes only in the run directory" {
+  run_dir=$(mktemp -d /tmp/mdpreview-test.XXXXXX)
+  sibling=$(mktemp -d /tmp/mdpreview-sibling.XXXXXX)
+  run python3 - "$ROOT" "$run_dir" "$sibling" <<'PY'
 import os, sys
-sys.path.insert(0, sys.argv[1])
+root, run_dir, sibling = sys.argv[1:]
+sys.path.insert(0, root)
 from readonly import restrict_writes
-restrict_writes()
-try:
-    os.open(os.path.join(sys.argv[1], "SANDBOX_ESCAPE"), os.O_WRONLY | os.O_CREAT)
-    print("escaped")
-except PermissionError:
-    print("blocked")
-inside = os.path.join(sys.argv[2], "inside")
-with open(inside, "w") as handle:
+restrict_writes(run_dir)
+for label, path in [("checkout", os.path.join(root, "SANDBOX_ESCAPE")), ("sibling", os.path.join(sibling, "x")),
+                    ("tmp", "/tmp/mdpreview-sandbox-escape")]:
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT))
+        print(label, "escaped")
+    except PermissionError:
+        print(label, "blocked")
+with open(os.path.join(run_dir, "inside"), "w") as handle:
     handle.write("ok")
-print("tmp ok" if sys.argv[2].startswith("/tmp/") else "tmp skipped")
+os.mkdir(os.path.join(run_dir, "sub"))
+print("inside ok")
 PY
-  [ "${lines[0]}" = blocked ]
+  rm -rf "$run_dir" "$sibling"
+  rm -f /tmp/mdpreview-sandbox-escape
+  [ "$output" = $'checkout blocked\nsibling blocked\ntmp blocked\ninside ok' ] || { echo "$output"; return 1; }
   [ ! -e "$ROOT/SANDBOX_ESCAPE" ]
+}
+
+@test "an external pager may write to its TMPDIR, the run directory" {
+  pager=$BATS_TEST_TMPDIR/pager
+  # The stub reports on stdout: the sandbox blocks the bats temporary directory too.
+  printf '#!/bin/sh\nset -e\nf=$(mktemp)\ncat > "$f"\necho "pager tmp $f $(wc -c < "$f")"\n' > "$pager"
+  chmod +x "$pager"
+  run env MDPREVIEW_PAGER="$pager" "$MDPREVIEW" --paging=always --columns 80 \
+    "$BATS_TEST_DIRNAME/fixtures/markdown/sample.md"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ $output == "pager tmp /tmp/mdpreview-"*' '[1-9]* ]] || { echo "$output"; return 1; }
+}
+
+run_dirs() {
+  find /tmp -maxdepth 1 -name 'mdpreview-*' -type d ! -name 'mdpreview-test.*' ! -name 'mdpreview-sibling.*' \
+    2>/dev/null | sort
+}
+
+# Wait up to 5 s for the run directories not in $1 (an earlier run_dirs listing) to disappear.
+run_dirs_removed() {
+  local new
+  for _ in $(seq 1 100); do
+    new=$(comm -13 <(printf '%s\n' "$1") <(run_dirs))
+    [ -z "$new" ] && return 0
+    sleep 0.05
+  done
+  echo "run directories left: $new"
+  return 1
+}
+
+@test "the run directory is removed after a render, stdin, and a fallback" {
+  before=$(run_dirs)
+  "$MDPREVIEW" --paging=never --columns 80 "$REFERENCE/tables.md" >/dev/null
+  echo '# stdin' | "$MDPREVIEW" --paging=never --columns 80 - >/dev/null
+  seq 1 1010 > "$BATS_TEST_TMPDIR/long.txt"
+  "$MDPREVIEW" --paging=never --columns 80 --filetype text "$BATS_TEST_TMPDIR/long.txt" >/dev/null 2>&1
+  run_dirs_removed "$before"
+}
+
+@test "the run directory is removed even when mdpreview is killed with SIGKILL" {
+  before=$(run_dirs)
+  "$MDPREVIEW" --paging=never --columns 80 --all --budget 0 --timeout 30 "$REFERENCE/tables.md" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do
+    [ -n "$(comm -13 <(printf '%s\n' "$before") <(run_dirs))" ] && break
+    sleep 0.02
+  done
+  [ -n "$(comm -13 <(printf '%s\n' "$before") <(run_dirs))" ] || { echo "no run directory observed"; return 1; }
+  kill -KILL "$pid"
+  wait "$pid" 2>/dev/null || true
+  run_dirs_removed "$before"
+}
+
+@test "a Neovim that outlives a SIGKILLed mdpreview is stopped before its run directory is removed" {
+  # Neovim 0.12 stays running when its run directory disappears under it; the cleanup child waits for, then
+  # kills, the Neovims mdpreview registered, and removes the directory last.
+  before_nvims=$(nvims)
+  before_dirs=$(run_dirs)
+  source "$HELPERS/slow_input.sh"
+  slow_input "$BATS_TEST_TMPDIR/slow.md"
+  "$MDPREVIEW" --paging=never --columns 100 --lines 40 --timeout 60 "$BATS_TEST_TMPDIR/slow.md" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ "$(nvims)" != "$before_nvims" ] && break; sleep 0.05; done
+  [ "$(nvims)" != "$before_nvims" ] || { echo "no embedded Neovim observed"; return 1; }
+  kill -KILL "$pid"
+  wait "$pid" 2>/dev/null || true
+  for _ in $(seq 1 100); do [ "$(nvims)" = "$before_nvims" ] && break; sleep 0.05; done
+  [ "$(nvims)" = "$before_nvims" ] || { echo "Neovim left: $(nvims)"; return 1; }
+  run_dirs_removed "$before_dirs"
 }

@@ -129,9 +129,50 @@ else
   vim.treesitter.query.get = guarded_get
 end
 
+-- A parser file that exists but does not load (built for another Tree-sitter ABI, corrupt, missing symbol)
+-- makes language.add raise. Report it once as a warning and keep raising, since Neovim's injection code tests
+-- for a usable parser with pcall(language.add). A missing parser returns nil and is not reported; --check
+-- lists those languages.
+local add_language = vim.treesitter.language.add
+vim.treesitter.language.add = function(lang, opts)
+  local ok, loaded, err = pcall(add_language, lang, opts)
+  if ok then
+    return loaded, err
+  end
+  if not reported["parser/" .. lang] then
+    reported["parser/" .. lang] = true
+    local message = first_line(loaded)
+    local advice = message:find("ABI version mismatch", 1, true)
+        and "; rebuild it for this Neovim or update Neovim (see parser_dir in mdpreview --check)"
+      or "; reinstall it (see parser_dir in mdpreview --check)"
+    table.insert(M.warnings, ("%s parser failed to load: %s%s"):format(lang, message, advice))
+  end
+  error(loaded, 0)
+end
+
+local function parser_loads(lang)
+  local ok, loaded = pcall(vim.treesitter.language.add, lang)
+  return ok and loaded == true
+end
+
+-- ftplugins such as Neovim's own for Lua call vim.treesitter.start() unguarded, which raises without a
+-- parser that loads; skip it then, so the buffer keeps regex syntax.
+local start_treesitter = vim.treesitter.start
+vim.treesitter.start = function(buf, lang)
+  local buffer = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+  local name = lang or vim.treesitter.language.get_lang(vim.bo[buffer].filetype)
+  if name and not parser_loads(name) then
+    return
+  end
+  return start_treesitter(buf, lang)
+end
+
 -- paths: settings from config.py runtime_paths(); every key except render_markdown may be nil.
 -- channel: the RPC channel for the screen grab, or nil for the pager.
 function M.setup(channel, paths)
+  if vim.fn.has("nvim-0.11") == 0 then
+    error(("Neovim 0.11 or later is required, found %s"):format(tostring(vim.version())), 0)
+  end
   local start = hrtime()
   M.marks.setup = start
   M.channel = channel
@@ -171,7 +212,7 @@ function M.setup(channel, paths)
   -- detection already attaches the plugin.
   local ignore = config.ignore
   config.ignore = function(buf)
-    return M.syntax == "regex" or (ignore ~= nil and ignore(buf) or false)
+    return M.syntax == "regex" or not parser_loads("markdown") or (ignore ~= nil and ignore(buf) or false)
   end
   if M.channel then
     config.on = {
@@ -182,9 +223,15 @@ function M.setup(channel, paths)
       end,
     }
   else
-    -- Pager: render in every mode, and never reveal the raw Markdown of the cursor line.
+    -- Pager: render in every mode, and never reveal the raw Markdown of the cursor line. M.pager() waits for
+    -- the first on.render before the screen is drawn.
     config.render_modes = true
     config.anti_conceal = { enabled = false }
+    config.on = {
+      render = function()
+        M.pager_rendered = true
+      end,
+    }
   end
   start = lap("setup: render-markdown options", start)
   if paths.icons then
@@ -222,7 +269,7 @@ function M.tune_markdown_queries()
 end
 
 local function has_highlights(lang)
-  return pcall(vim.treesitter.language.add, lang) and #vim.treesitter.query.get_files(lang, "highlights") > 0
+  return parser_loads(lang) and #vim.treesitter.query.get_files(lang, "highlights") > 0
 end
 
 -- Highlight a non-Markdown buffer with Tree-sitter when the language has a highlights query,
@@ -271,7 +318,12 @@ local function load(path, spec, syntax)
     lap("open: filetype detection", start)
   end
   M.filetype = spec.filetype
-  M.rendered = M.filetype == "markdown" and syntax ~= "regex"
+  -- render-markdown needs the Markdown parser; without one that loads, show Vim's markdown syntax instead.
+  M.rendered = M.filetype == "markdown" and syntax ~= "regex" and parser_loads("markdown")
+  if M.filetype == "markdown" and not M.rendered and syntax ~= "regex" then
+    syntax = "regex"
+    M.syntax = "regex" -- Keeps render-markdown off this buffer (see config.ignore in M.setup).
+  end
   if M.rendered then
     start = hrtime()
     vim.bo.filetype = "markdown"
@@ -378,18 +430,32 @@ function M.pager(session)
   M.setup(nil, session.paths)
   load(session.path, session.filetype, session.syntax)
   if M.rendered then
-    -- render-markdown's update() renders from a scheduled callback, after Neovim has drawn the raw text once.
-    -- Run its updater directly so the first frame is rendered; fall back to update() if that internal changes.
-    local ui = require("render-markdown.core.ui")
-    local buf, win = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
-    if not (ui.updater and pcall(function() ui.updater.new(buf, win, true):run() end)) then
-      ui.update(buf, win, "Pager", true)
-    end
+    -- render-markdown renders from a scheduled callback, which would run after Neovim has drawn the raw text
+    -- once. Process events until its on.render fires, so the first screen is the rendered one; this runs from
+    -- -c, before the first draw. After the timeout the raw text shows briefly and renders when it can.
+    M.pager_rendered = false
+    require("render-markdown.api").render({
+      buf = vim.api.nvim_get_current_buf(), win = vim.api.nvim_get_current_win(), event = "Pager",
+    })
+    vim.wait(1000, function() return M.pager_rendered end, 5)
   end
   vim.bo.modifiable = false
   vim.bo.modified = false
   if #M.warnings > 0 then
-    vim.notify("mdpreview: " .. table.concat(M.warnings, "\nmdpreview: "), vim.log.levels.WARN)
+    -- One line that fits the screen: a longer message would stop at "Press ENTER" before the document is seen.
+    -- The full text is in mdpreview --check.
+    local failed = {}
+    for _, warning in ipairs(M.warnings) do
+      failed[#failed + 1] = warning:match("^(.- query) failed") or warning:match("^(%S+ parser) failed") or warning
+    end
+    local message = ("mdpreview: %s failed (details: mdpreview --check)"):format(table.concat(failed, ", "))
+    -- Echoed during startup, before the first screen, even one line waits for a key; echo after VimEnter.
+    vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = vim.schedule_wrap(function()
+      if vim.fn.strdisplaywidth(message) >= vim.o.columns then
+        message = vim.fn.strcharpart(message, 0, vim.o.columns - 2) .. "…"
+      end
+      vim.api.nvim_echo({ { message, "WarningMsg" } }, true, {})
+    end) })
   end
   local map = function(lhs, rhs)
     vim.keymap.set("n", lhs, rhs, { buffer = true, nowait = true, silent = true })
@@ -400,4 +466,66 @@ function M.pager(session)
   map("b", "<C-b>")
   map("d", "<C-d>")
   map("u", "<C-u>")
+  if session.follow then
+    M.follow(session.path)
+    map("F", "G") -- less: follow again.
+  end
+end
+
+-- Follow mode (--follow): reload the file when it changes, like less +F or tail -f. While the cursor is on the
+-- last line the view stays at the end; moving up pauses that, and G or F resumes it. An inotify watch reacts
+-- at once and a one-second poll covers filesystems without events and a file that was replaced or removed.
+local function signature(path)
+  local stat = vim.uv.fs_stat(path)
+  return stat and table.concat({ stat.ino, stat.size, stat.mtime.sec, stat.mtime.nsec }, ":") or nil
+end
+
+function M.follow(path)
+  local buf, win = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
+  local last = signature(path)
+  local following = true
+  vim.cmd("normal! G")
+  vim.api.nvim_create_autocmd("CursorMoved", { buffer = buf, callback = function()
+    following = vim.api.nvim_win_get_cursor(win)[1] == vim.api.nvim_buf_line_count(buf)
+  end })
+
+  local watcher
+  local function reload()
+    local current = signature(path)
+    if current == nil or current == last then
+      return -- Removed (wait for it to come back) or unchanged.
+    end
+    last = current
+    local view = vim.fn.winsaveview()
+    vim.bo[buf].modifiable = true
+    vim.cmd("silent edit!")
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].modified = false
+    -- render-markdown re-renders after :edit! by itself (pager.bats checks the reloaded screen).
+    if following then
+      vim.cmd("normal! G")
+    else
+      vim.fn.winrestview(view)
+    end
+  end
+
+  local function watch()
+    if watcher then
+      watcher:stop()
+    end
+    watcher = vim.uv.new_fs_event()
+    -- A rename or replacement leaves the watch on the old file: watch the path again after each event.
+    watcher:start(path, {}, vim.schedule_wrap(function()
+      reload()
+      watch()
+    end))
+  end
+  watch()
+  local timer = vim.uv.new_timer()
+  timer:start(1000, 1000, vim.schedule_wrap(function()
+    if signature(path) ~= last then
+      reload()
+      watch()
+    end
+  end))
 end

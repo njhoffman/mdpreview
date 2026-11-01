@@ -94,7 +94,9 @@ detected() {
 
 @test "a Neovim killed mid-render is reported, not hung on" {
   before=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from common import embedded_nvims; print(" ".join(map(str, sorted(embedded_nvims()))))' "$HELPERS")
-  "$MDPREVIEW" --paging=never --columns 100 --all --budget 0 "$ROOT/benchmarks/large.md" \
+  source "$HELPERS/slow_input.sh"
+  slow_input "$BATS_TEST_TMPDIR/slow.md"
+  "$MDPREVIEW" --paging=never --columns 100 --lines 40 --timeout 60 "$BATS_TEST_TMPDIR/slow.md" \
     > /dev/null 2> "$BATS_TEST_TMPDIR/stderr" &
   pid=$!
   victim=

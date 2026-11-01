@@ -33,6 +33,39 @@ session() {
   session regex "$DOCUMENT" --syntax regex
 }
 
+@test "a broken highlights query is shown as a notification and the file falls back to regex syntax" {
+  broken=$BATS_TEST_TMPDIR/broken
+  mkdir -p "$broken/queries/lua"
+  echo '(no_such_node) @keyword' > "$broken/queries/lua/highlights.scm"
+  { echo '-- PAGER_TOP'; for i in $(seq 1 40); do echo "local x$i = \"item $i\""; done; } > "$BATS_TEST_TMPDIR/pager.lua"
+  MDPREVIEW_PARSER_DIR=$broken session warning "$BATS_TEST_TMPDIR/pager.lua"
+  # The same file through the renderer reports the regex engine, so the pager is not the only evidence.
+  MDPREVIEW_PARSER_DIR=$broken run --separate-stderr "$MDPREVIEW" --paging=never --timings-json "$BATS_TEST_TMPDIR/pager.lua"
+  [[ $stderr == *'"engine": "syntax"'* ]]
+}
+
+@test "--follow shows appended lines, pauses while scrolled up, resumes on G, and reloads a truncated file" {
+  session follow "$DOCUMENT" --follow
+}
+
+@test "--follow refuses stdin, an external pager, a viewport and a pipe in one line" {
+  run --separate-stderr "$MDPREVIEW" --follow - < "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs a file, not stdin' ]
+  run --separate-stderr "$MDPREVIEW" --follow --pager less "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs the nvim pager (--pager nvim)' ]
+  run --separate-stderr "$MDPREVIEW" --follow --lines 5 "$DOCUMENT"
+  [ "$status" -eq 1 ] && [[ $stderr == 'mdpreview: --follow pages the whole file;'* ]]
+  run --separate-stderr "$MDPREVIEW" --follow "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs a terminal on stdout' ]
+}
+
+@test "--follow pages a file over the 10 MiB render limit" {
+  big=$BATS_TEST_TMPDIR/big.log
+  { echo 'PAGER_TOP'; head -c $((11 * 1024 * 1024)) /dev/zero | tr '\0' 'x' | fold -w 100; echo; echo 'PAGER_BOTTOM'; } > "$big"
+  run timeout 60 python3 "$HELPERS/pager_session.py" follow-open "$big" --follow
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "a terminal resize redraws" {
   session resize "$DOCUMENT"
 }
@@ -77,39 +110,40 @@ session() {
 }
 
 pager_command() {
-  # An external pager that records that it ran.
-  echo "sh -c 'cat > \"\$1\"' pager $BATS_TEST_TMPDIR/paged"
+  # An external pager that marks its output on stdout (Landlock lets it write only in the run directory).
+  echo "sh -c 'echo ==PAGED==; cat'"
 }
 
+externally_paged() { [ "${lines[0]}" = ==PAGED== ] && [[ $output == *PAGER_BOTTOM* ]]; }
+
 @test "--pager with a command line uses that external pager" {
-  "$MDPREVIEW" --columns 80 --paging=always --pager "$(pager_command)" "$DOCUMENT"
-  grep -q PAGER_BOTTOM "$BATS_TEST_TMPDIR/paged"
+  run "$MDPREVIEW" --columns 80 --paging=always --pager "$(pager_command)" "$DOCUMENT"
+  externally_paged
 }
 
 @test "MDPREVIEW_PAGER selects an external pager" {
-  MDPREVIEW_PAGER=$(pager_command) "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
-  grep -q PAGER_BOTTOM "$BATS_TEST_TMPDIR/paged"
+  MDPREVIEW_PAGER=$(pager_command) run "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
+  externally_paged
 }
 
 @test "the config file's pager key selects an external pager" {
   printf "pager = \"%s\"\n" "$(pager_command | sed 's/"/\\"/g')" > "$MDPREVIEW_CONFIG"
-  "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
-  grep -q PAGER_BOTTOM "$BATS_TEST_TMPDIR/paged"
+  run "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
+  externally_paged
 }
 
 @test "--pager nvim overrides an external MDPREVIEW_PAGER" {
+  # The keys scenario only passes in the Neovim pager.
   MDPREVIEW_PAGER=$(pager_command) session keys "$DOCUMENT"
-  [ ! -e "$BATS_TEST_TMPDIR/paged" ]
 }
 
 @test "--pager less runs less -R" {
   mkdir "$BATS_TEST_TMPDIR/bin"
-  printf '#!/bin/sh\necho "$@" > %s/less-args\ncat > %s/paged\n' "$BATS_TEST_TMPDIR" "$BATS_TEST_TMPDIR" \
-    > "$BATS_TEST_TMPDIR/bin/less"
+  printf '#!/bin/sh\necho "==PAGED== $*"\ncat\n' > "$BATS_TEST_TMPDIR/bin/less"
   chmod +x "$BATS_TEST_TMPDIR/bin/less"
-  PATH=$BATS_TEST_TMPDIR/bin:$PATH "$MDPREVIEW" --columns 80 --paging=always --pager less "$DOCUMENT"
-  [ "$(cat "$BATS_TEST_TMPDIR/less-args")" = -R ]
-  grep -q PAGER_BOTTOM "$BATS_TEST_TMPDIR/paged"
+  PATH=$BATS_TEST_TMPDIR/bin:$PATH run "$MDPREVIEW" --columns 80 --paging=always --pager less "$DOCUMENT"
+  [ "${lines[0]}" = '==PAGED== -R' ]
+  [[ $output == *PAGER_BOTTOM* ]]
 }
 
 @test "--check reports the pager and its source" {
