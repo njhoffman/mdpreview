@@ -48,49 +48,49 @@ Findings, in order of what they cost:
 
 <!-- filetypes:start -->
 
-Recorded 2026-10-31T22:07Z, version 0.6.0 (2728662-dirty), load 1.91, NVIM v0.13.0-dev-1915+gc5641b2bfb, 5 runs per command. 80 columns, medians from hyperfine; regenerate with `benchmarks/filetypes`. Fixture: the file in `tests/fixtures/<filetype>`; large: that file repeated. Overhead is dispatch minus complete on the fixture. Query is `vim.treesitter.start` (query compilation), parse is the synchronous parse or the regex syntax load, frames is render and redraw, all from one `--timings-json` run of the large file.
+Recorded 2026-11-01T01:37Z, version 0.10.1 (33cdf70-dirty), load 2.08, NVIM v0.13.0-dev-1915+gc5641b2bfb, 5 runs per command. 80 columns, medians from hyperfine; regenerate with `benchmarks/filetypes`. Fixture: the file in `tests/fixtures/<filetype>`; large: that file repeated. Overhead is dispatch minus complete on the fixture. Query is `vim.treesitter.start` (query compilation), parse is the synchronous parse or the regex syntax load, frames is render and redraw, all from one `--timings-json` run of the large file.
 
 | Filetype | Engine | Fixture (ms) | Large lines | Large (ms) | Large regex (ms) | Large viewport (ms) | bat large (ms) | Dispatch overhead (ms) | Startup (ms) | Query (ms) | Parse (ms) | Frames (ms) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| markdown | render-markdown | 243 | 504 | 523 | 476 | 292 | 53 | -2 | 82 | 0 | 0 | 336 |
-| helm | treesitter | 175 | 504 | 251 | 189 | 171 | 32 | 71 | 98 | 5 | 31 | 76 |
-| htmldjango | treesitter | 147 | 500 | 259 | 247 | 170 | 17 | 37 | 81 | 2 | 9 | 62 |
-| tmux | syntax | 137 | 500 | 229 | - | 150 | 14 | -3 | 77 | 0 | 8 | 27 |
-| kitty | treesitter | 135 | 500 | 296 | 192 | 220 | 14 | 2 | 73 | 5 | 55 | 76 |
-| hyprlang | treesitter | 204 | 504 | 344 | 204 | 282 | 13 | 3 | 74 | 2 | 44 | 143 |
-| i3config | syntax | 126 | 500 | 164 | - | 122 | 13 | -2 | 74 | 0 | 3 | 14 |
-| sxhkdrc | treesitter | 239 | 500 | 411 | 155 | 224 | 12 | -11 | 76 | 1 | 45 | 224 |
-| zathurarc | syntax | 114 | 500 | 162 | - | 118 | 12 | 9 | 76 | 0 | 2 | 9 |
-| neomuttrc | syntax | 141 | 500 | 206 | - | 145 | 12 | -7 | 77 | 0 | 11 | 32 |
-| muttrc | syntax | 131 | 500 | 188 | - | 138 | 13 | -4 | 71 | 0 | 6 | 33 |
-| rasi | treesitter | 116 | 500 | 184 | 178 | 129 | 13 | 8 | 77 | 2 | 2 | 14 |
-| readline | treesitter | 128 | 504 | 218 | 157 | 143 | 14 | -11 | 76 | 1 | 6 | 71 |
-| udevrules | treesitter | 128 | 500 | 344 | 159 | 137 | 12 | -12 | 84 | 2 | 18 | 189 |
-| xdefaults | syntax | 128 | 500 | 156 | - | 125 | 13 | -13 | 77 | 0 | 2 | 8 |
-| xcompose | treesitter | 147 | 501 | 305 | 170 | 126 | 12 | -32 | 81 | 1 | 8 | 123 |
-| systemd | syntax | 117 | 504 | 161 | - | 117 | 14 | 4 | 74 | 0 | 2 | 6 |
-| just | treesitter | 216 | 504 | 359 | 187 | 221 | 13 | -5 | 78 | 3 | 45 | 164 |
-| kdl | treesitter | 124 | 504 | 230 | 159 | 130 | 12 | -1 | 71 | 4 | 8 | 63 |
-| json5 | treesitter | 127 | 504 | 263 | 168 | 123 | 12 | 17 | 89 | 1 | 5 | 67 |
-| hjson | treesitter | 124 | 504 | 213 | 171 | 129 | 12 | 0 | 79 | 1 | 4 | 40 |
-| gotmpl | treesitter | 129 | 500 | 357 | 228 | 229 | 19 | 11 | 74 | 3 | 11 | 188 |
-| prisma | treesitter | 122 | 500 | 233 | 175 | 150 | 15 | -2 | 74 | 1 | 5 | 69 |
-| astro | treesitter | 456 | 500 | 657 | 558 | 477 | 12 | 38 | 73 | 3 | 138 | 226 |
-| mermaid | treesitter | 119 | 500 | 253 | 164 | 140 | 13 | 13 | 91 | 3 | 14 | 93 |
-| meson | treesitter | 124 | 501 | 283 | 188 | 136 | 11 | -7 | 79 | 3 | 11 | 131 |
-| nu | treesitter | 154 | 500 | 297 | 229 | 190 | 12 | -5 | 70 | 29 | 18 | 77 |
-| gleam | treesitter | 122 | 504 | 234 | 162 | 145 | 13 | 4 | 74 | 9 | 6 | 60 |
-| fennel | treesitter | 161 | 500 | 374 | 158 | 184 | 12 | 17 | 71 | 42 | 10 | 154 |
-| cuda | treesitter | 531 | 500 | 694 | 196 | 536 | 14 | 23 | 73 | 389 | 15 | 96 |
-| po | treesitter | 119 | 504 | 201 | 163 | 142 | 15 | 12 | 71 | 1 | 4 | 44 |
-| pug | treesitter | 231 | 504 | 464 | 172 | 251 | 12 | 31 | 78 | 6 | 67 | 229 |
-| ledger | treesitter | 186 | 500 | 328 | 155 | 127 | 12 | -41 | 89 | 2 | 13 | 101 |
-| beancount | treesitter | 115 | 500 | 242 | 182 | 159 | 13 | 0 | 71 | 2 | 6 | 62 |
-| dts | treesitter | 125 | 504 | 222 | 156 | 133 | 12 | 9 | 80 | 4 | 7 | 73 |
-| ebnf | treesitter | 116 | 500 | 296 | 154 | 128 | 12 | 18 | 78 | 2 | 7 | 116 |
-| cue | treesitter | 146 | 504 | 257 | 168 | 152 | 12 | 12 | 81 | 35 | 7 | 79 |
-| dhall | treesitter | 119 | 501 | 218 | 169 | 143 | 12 | 5 | 75 | 4 | 25 | 29 |
-| handlebars | treesitter | 144 | 504 | 273 | 357 | 170 | 14 | 2 | 81 | 2 | 10 | 93 |
-| conf | syntax | 115 | 501 | 173 | - | 116 | 11 | 8 | 75 | 0 | 2 | 6 |
+| markdown | render-markdown | 271 | 504 | 536 | 283 | 368 | 60 | -4 | 94 | 0 | 0 | 379 |
+| helm | treesitter | 159 | 504 | 263 | 168 | 194 | 40 | 10 | 85 | 4 | 25 | 64 |
+| htmldjango | treesitter | 159 | 500 | 277 | 269 | 191 | 17 | 9 | 83 | 2 | 8 | 62 |
+| tmux | syntax | 134 | 500 | 214 | - | 139 | 12 | 45 | 92 | 0 | 10 | 29 |
+| kitty | treesitter | 146 | 500 | 340 | 204 | 197 | 12 | -14 | 82 | 6 | 54 | 79 |
+| hyprlang | treesitter | 217 | 504 | 383 | 181 | 229 | 14 | -3 | 86 | 1 | 45 | 146 |
+| i3config | syntax | 123 | 500 | 235 | - | 203 | 19 | 17 | 91 | 0 | 4 | 15 |
+| sxhkdrc | treesitter | 265 | 500 | 456 | 190 | 253 | 13 | -23 | 88 | 1 | 49 | 235 |
+| zathurarc | syntax | 120 | 500 | 176 | - | 128 | 12 | 10 | 87 | 0 | 3 | 9 |
+| neomuttrc | syntax | 170 | 500 | 223 | - | 162 | 13 | -13 | 81 | 0 | 13 | 38 |
+| muttrc | syntax | 147 | 500 | 250 | - | 148 | 13 | -13 | 81 | 0 | 7 | 34 |
+| rasi | treesitter | 134 | 500 | 197 | 184 | 147 | 14 | -4 | 83 | 2 | 2 | 17 |
+| readline | treesitter | 146 | 504 | 238 | 188 | 139 | 13 | -9 | 96 | 1 | 6 | 66 |
+| udevrules | treesitter | 135 | 500 | 389 | 235 | 203 | 16 | 2 | 84 | 2 | 16 | 162 |
+| xdefaults | syntax | 157 | 500 | 182 | - | 128 | 13 | 4 | 97 | 0 | 3 | 10 |
+| xcompose | treesitter | 120 | 501 | 302 | 203 | 158 | 13 | 8 | 85 | 1 | 9 | 116 |
+| systemd | syntax | 131 | 504 | 176 | - | 138 | 14 | 8 | 84 | 0 | 3 | 6 |
+| just | treesitter | 247 | 504 | 386 | 213 | 225 | 13 | -28 | 80 | 2 | 43 | 159 |
+| kdl | treesitter | 135 | 504 | 247 | 184 | 143 | 12 | 8 | 83 | 4 | 8 | 66 |
+| json5 | treesitter | 149 | 504 | 240 | 179 | 143 | 12 | -17 | 85 | 1 | 5 | 61 |
+| hjson | treesitter | 131 | 504 | 305 | 227 | 158 | 15 | 43 | 109 | 1 | 5 | 53 |
+| gotmpl | treesitter | 160 | 500 | 385 | 185 | 163 | 13 | 9 | 96 | 4 | 14 | 185 |
+| prisma | treesitter | 125 | 500 | 288 | 170 | 145 | 14 | 18 | 92 | 2 | 6 | 92 |
+| astro | treesitter | 481 | 500 | 728 | 574 | 509 | 12 | 22 | 79 | 4 | 145 | 237 |
+| mermaid | treesitter | 129 | 500 | 265 | 183 | 186 | 19 | 11 | 81 | 2 | 12 | 83 |
+| meson | treesitter | 157 | 501 | 303 | 172 | 172 | 15 | -21 | 83 | 3 | 10 | 128 |
+| nu | treesitter | 178 | 500 | 305 | 240 | 198 | 13 | -18 | 82 | 31 | 21 | 91 |
+| gleam | treesitter | 150 | 504 | 245 | 207 | 156 | 12 | -11 | 97 | 10 | 7 | 67 |
+| fennel | treesitter | 167 | 500 | 249 | 109 | 118 | 9 | -54 | 50 | 27 | 6 | 103 |
+| cuda | treesitter | 354 | 500 | 429 | 133 | 356 | 8 | -1 | 51 | 266 | 9 | 56 |
+| po | treesitter | 82 | 504 | 150 | 112 | 84 | 8 | -2 | 55 | 1 | 3 | 32 |
+| pug | treesitter | 166 | 504 | 310 | 107 | 183 | 8 | -5 | 58 | 4 | 50 | 163 |
+| ledger | treesitter | 85 | 500 | 162 | 106 | 92 | 9 | -4 | 59 | 1 | 8 | 59 |
+| beancount | treesitter | 81 | 500 | 151 | 118 | 100 | 8 | 7 | 53 | 1 | 4 | 42 |
+| dts | treesitter | 81 | 504 | 152 | 132 | 99 | 8 | 2 | 51 | 2 | 3 | 35 |
+| ebnf | treesitter | 87 | 500 | 180 | 118 | 96 | 8 | -7 | 51 | 1 | 4 | 71 |
+| cue | treesitter | 99 | 504 | 192 | 112 | 114 | 8 | 11 | 54 | 21 | 4 | 41 |
+| dhall | treesitter | 81 | 501 | 145 | 117 | 98 | 8 | 3 | 56 | 3 | 16 | 22 |
+| handlebars | treesitter | 110 | 504 | 180 | 154 | 116 | 8 | 1 | 63 | 2 | 5 | 58 |
+| conf | syntax | 84 | 501 | 110 | - | 79 | 8 | 1 | 53 | 0 | 2 | 4 |
 
 <!-- filetypes:end -->

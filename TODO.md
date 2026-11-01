@@ -103,10 +103,10 @@ Reviewed: 2026-10-31
   takes over 8 s at the 4,096-row grid even without tables. (0.8.0: that was a stall, not slowness; Neovim
   clamps the grid to 1,000 rows and nvcat waited for a taller frame.)
   Done: `benchmarks/filetypes` (`--check` flags regressions), results in docs/PERFORMANCE.md.
-- [ ] **Tree-sitter guards cost about 10-15 ms at startup.** (p3) [perf] The `query.get`, `language.add` and
-  `treesitter.start` wrappers at the top of `profile.lua` load `vim.treesitter` before `setup()`; interleaved
-  runs on the kdl fixture (2026-10-31, load 5-7): v0.7.0 314 ms, 0.10.0 330 ms median, "profile.lua to setup"
-  +19 ms against "runtimepath" -9 ms. Install the wrappers lazily (on first use) and re-measure.
+- [x] **Startup cost about 10-15 ms more than in 0.7.0.** (p3) [perf] Not the Tree-sitter guards (loading
+  `vim.treesitter` costs about 2.5 ms and render-markdown loads it anyway) but the 0.8.0 row-limit check's
+  `nvim_get_option_value("lines")` round trips after attaching and after each resize: 102.7 against 95.2 ms
+  median on the kdl fixture (12 interleaved runs, load 1.5). Removed in 0.10.1.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
   `grid_scroll`, O(rows x columns) per scroll; at 1,000 rows this adds up. Copy only the scrolled region.
 - [x] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.

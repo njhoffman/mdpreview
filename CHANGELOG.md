@@ -6,6 +6,15 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-31
+
+### Fixed
+
+- Every render is about 6 ms faster: the row-limit check added in 0.8.0 asked Neovim for its `lines` after
+  attaching and after each resize, a round trip while Neovim was still drawing. The limit (1,000 rows, Neovim's
+  own) is now checked without asking; a Neovim with a lower cap still falls back to bat, through `--timeout`,
+  with the row-limit notice.
+
 ## [0.10.0] - 2026-10-31
 
 ### Added

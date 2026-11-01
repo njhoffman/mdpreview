@@ -31,7 +31,7 @@ from readonly import landlock_abi, restrict_writes
 
 ROOT = Path(__file__).resolve().parent
 # Neovim clamps 'lines', and so the UI grid, to 1000 rows; a taller nvim_ui_try_resize never produces the
-# requested grid. Renderer.grid_rows() checks the height Neovim actually applied.
+# requested grid. Renderer.wait_ready() names the row limit if a Neovim with a lower cap times out on it.
 MAX_ROWS = 1000
 MAX_BYTES = 10 * 1024 * 1024
 VERSION_FILE = ROOT / "VERSION"
@@ -278,19 +278,11 @@ class Renderer:
       channel = self.request("nvim_get_api_info")[0]
       self.request("nvim_ui_attach", width, height,
                    {"rgb": True, "ext_linegrid": True, "ext_messages": True})
-      self.grid_rows(height)
       self.request("nvim_exec_lua", "nvcat.setup(...)", [channel, paths])
       self.timings.since("startup", self.spawned)
     except BaseException:
       self.close()
       raise
-
-  def grid_rows(self, height):
-    """Fail fast when Neovim applied fewer rows than requested; waiting for that frame would never end."""
-    rows = self.request("nvim_get_option_value", "lines", {})
-    if rows < height:
-      raise TooLarge(f"complete output needs {height} screen rows, over the {rows} Neovim allows "
-                     "(--lines renders a viewport)")
 
   def request(self, method, *arguments):
     self.serial += 1
@@ -372,9 +364,17 @@ class Renderer:
 
   def wait_ready(self, token, width, height):
     deadline = time.monotonic() + self.timeout
-    while not any(item["token"] == token and item["width"] == width and item["height"] == height
-                  for item in self.ready):
-      self.pump(deadline)
+    try:
+      while not any(item["token"] == token and item["width"] == width and item["height"] == height
+                    for item in self.ready):
+        self.pump(deadline)
+    except TimedOut as error:
+      # A Neovim that clamps its grid below MAX_ROWS never draws the requested height; name the row limit.
+      shorter = [item["height"] for item in self.ready if item["token"] == token and item["height"] < height]
+      if shorter:
+        raise TooLarge(f"complete output needs {height} screen rows, over the {max(shorter)} Neovim allows "
+                       "(--lines renders a viewport)") from error
+      raise
     # notify_ready redrew just before signalling, and grid events precede the notification on the channel.
     with self.timings.phase("frames: info"):
       info = self.request("nvim_exec_lua", "return nvcat.info()", [])
@@ -404,7 +404,6 @@ class Renderer:
         self.token += 1
         self.request("nvim_exec_lua", "nvcat.token = ...", [self.token])
         self.request("nvim_ui_try_resize", width, height)
-        self.grid_rows(height)
         self.request("nvim_exec_lua", "nvcat.resized(...)", [self.token])
         info = self.wait_ready(self.token, width, height)
       else:

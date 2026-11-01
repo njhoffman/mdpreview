@@ -1,82 +1,82 @@
-# 2026-10-31T22:07Z, version 0.6.0 (2728662-dirty), load 1.91, NVIM v0.13.0-dev-1915+gc5641b2bfb, 5 runs per command
+# 2026-11-01T01:37Z, version 0.10.1 (33cdf70-dirty), load 2.08, NVIM v0.13.0-dev-1915+gc5641b2bfb, 5 runs per command
 filetype	size	lines	engine	all_ms	regex_ms	viewport_ms	bat_ms	dispatch_ms	startup_ms	query_ms	parse_ms	frames_ms
-markdown	fixture	7	render-markdown	243	260	245	23	241	56	0	0	76
-markdown	large	504	render-markdown	523	476	292	53	732	82	0	0	336
-helm	fixture	6	treesitter	175	159	238	25	246	112	6	21	23
-helm	large	504	treesitter	251	189	171	32	260	98	5	31	76
-htmldjango	fixture	4	treesitter	147	173	151	13	184	62	2	2	2
-htmldjango	large	500	treesitter	259	247	170	17	279	81	2	9	62
-tmux	fixture	4	syntax	137		130	11	134	62	0	7	2
-tmux	large	500	syntax	229		150	14	268	77	0	8	27
-kitty	fixture	4	treesitter	135	117	137	13	137	78	6	3	2
-kitty	large	500	treesitter	296	192	220	14	337	73	5	55	76
-hyprlang	fixture	7	treesitter	204	128	198	10	207	68	1	35	49
-hyprlang	large	504	treesitter	344	204	282	13	361	74	2	44	143
-i3config	fixture	4	syntax	126		115	13	124	76	0	4	1
-i3config	large	500	syntax	164		122	13	175	74	0	3	14
-sxhkdrc	fixture	5	treesitter	239	120	190	11	228	82	1	39	55
-sxhkdrc	large	500	treesitter	411	155	224	12	469	76	1	45	224
-zathurarc	fixture	4	syntax	114		132	14	123	67	0	2	0
-zathurarc	large	500	syntax	162		118	12	157	76	0	2	9
-neomuttrc	fixture	5	syntax	141		141	11	134	65	0	10	1
-neomuttrc	large	500	syntax	206		145	12	216	77	0	11	32
-muttrc	fixture	5	syntax	131		122	12	127	90	0	8	2
-muttrc	large	500	syntax	188		138	13	199	71	0	6	33
-rasi	fixture	5	treesitter	116	116	113	12	124	65	2	0	1
-rasi	large	500	treesitter	184	178	129	13	176	77	2	2	14
-readline	fixture	6	treesitter	128	127	118	11	117	71	1	1	2
-readline	large	504	treesitter	218	157	143	14	230	76	1	6	71
-udevrules	fixture	2	treesitter	128	114	114	11	116	74	2	1	1
-udevrules	large	500	treesitter	344	159	137	12	388	84	2	18	189
-xdefaults	fixture	5	syntax	128		119	11	115	67	0	2	1
-xdefaults	large	500	syntax	156		125	13	160	77	0	2	8
-xcompose	fixture	3	treesitter	147	117	111	11	115	59	1	1	2
-xcompose	large	501	treesitter	305	170	126	12	292	81	1	8	123
-systemd	fixture	6	syntax	117		115	10	121	66	0	2	0
-systemd	large	504	syntax	161		117	14	178	74	0	2	6
-just	fixture	6	treesitter	216	121	195	11	211	73	3	39	55
-just	large	504	treesitter	359	187	221	13	402	78	3	45	164
-kdl	fixture	6	treesitter	124	112	122	12	123	63	4	1	2
-kdl	large	504	treesitter	230	159	130	12	255	71	4	8	63
-json5	fixture	6	treesitter	127	130	118	11	144	80	1	1	2
-json5	large	504	treesitter	263	168	123	12	210	89	1	5	67
-hjson	fixture	9	treesitter	124	118	121	12	124	65	1	1	1
-hjson	large	504	treesitter	213	171	129	12	202	79	1	4	40
-gotmpl	fixture	4	treesitter	129	124	126	11	140	66	3	2	2
-gotmpl	large	500	treesitter	357	228	229	19	433	74	3	11	188
-prisma	fixture	5	treesitter	122	121	115	11	120	83	2	1	2
-prisma	large	500	treesitter	233	175	150	15	253	74	1	5	69
-astro	fixture	5	treesitter	456	333	465	13	494	75	4	149	132
-astro	large	500	treesitter	657	558	477	12	664	73	3	138	226
-mermaid	fixture	4	treesitter	119	124	127	11	132	63	3	1	1
-mermaid	large	500	treesitter	253	164	140	13	254	91	3	14	93
-meson	fixture	3	treesitter	124	112	114	10	117	65	3	1	2
-meson	large	501	treesitter	283	188	136	11	291	79	3	11	131
-nu	fixture	5	treesitter	154	129	144	11	149	68	31	1	2
-nu	large	500	treesitter	297	229	190	12	300	70	29	18	77
-gleam	fixture	6	treesitter	122	118	122	11	126	63	8	1	2
-gleam	large	504	treesitter	234	162	145	13	260	74	9	6	60
-fennel	fixture	4	treesitter	161	117	156	11	178	68	46	1	4
-fennel	large	500	treesitter	374	158	184	12	376	71	42	10	154
-cuda	fixture	5	treesitter	531	121	524	11	554	71	455	1	2
-cuda	large	500	treesitter	694	196	536	14	670	73	389	15	96
-po	fixture	7	treesitter	119	113	115	11	131	63	1	1	1
-po	large	504	treesitter	201	163	142	15	233	71	1	4	44
-pug	fixture	7	treesitter	231	109	242	11	262	76	7	69	72
-pug	large	504	treesitter	464	172	251	12	472	78	6	67	229
-ledger	fixture	4	treesitter	186	142	150	14	145	112	3	2	2
-ledger	large	500	treesitter	328	155	127	12	252	89	2	13	101
-beancount	fixture	5	treesitter	115	126	110	11	115	63	1	1	2
-beancount	large	500	treesitter	242	182	159	13	240	71	2	6	62
-dts	fixture	6	treesitter	125	116	117	11	134	63	4	1	2
-dts	large	504	treesitter	222	156	133	12	229	80	4	7	73
-ebnf	fixture	4	treesitter	116	122	135	12	134	80	1	1	3
-ebnf	large	500	treesitter	296	154	128	12	284	78	2	7	116
-cue	fixture	6	treesitter	146	128	144	12	158	65	31	1	2
-cue	large	504	treesitter	257	168	152	12	258	81	35	7	79
-dhall	fixture	3	treesitter	119	110	128	12	124	69	4	1	1
-dhall	large	501	treesitter	218	169	143	12	220	75	4	25	29
-handlebars	fixture	6	treesitter	144	168	145	11	146	63	3	1	2
-handlebars	large	504	treesitter	273	357	170	14	276	81	2	10	93
-conf	fixture	3	syntax	115		125	12	123	65	0	2	0
-conf	large	501	syntax	173		116	11	175	75	0	2	6
+markdown	fixture	7	render-markdown	271	246	250	22	267	65	0	0	78
+markdown	large	504	render-markdown	536	283	368	60	609	94	0	0	379
+helm	fixture	6	treesitter	159	130	203	14	169	69	4	14	15
+helm	large	504	treesitter	263	168	194	40	267	85	4	25	64
+htmldjango	fixture	4	treesitter	159	186	202	13	168	71	6	4	3
+htmldjango	large	500	treesitter	277	269	191	17	272	83	2	8	62
+tmux	fixture	4	syntax	134		144	16	179	63	0	8	2
+tmux	large	500	syntax	214		139	12	222	92	0	10	29
+kitty	fixture	4	treesitter	146	131	141	11	132	77	6	3	2
+kitty	large	500	treesitter	340	204	197	12	307	82	6	54	79
+hyprlang	fixture	7	treesitter	217	126	199	11	214	73	2	37	58
+hyprlang	large	504	treesitter	383	181	229	14	377	86	1	45	146
+i3config	fixture	4	syntax	123		122	11	140	70	0	4	1
+i3config	large	500	syntax	235		203	19	261	91	0	4	15
+sxhkdrc	fixture	5	treesitter	265	150	208	11	242	89	2	45	62
+sxhkdrc	large	500	treesitter	456	190	253	13	465	88	1	49	235
+zathurarc	fixture	4	syntax	120		130	12	130	68	0	3	0
+zathurarc	large	500	syntax	176		128	12	173	87	0	3	9
+neomuttrc	fixture	5	syntax	170		148	11	157	76	0	13	1
+neomuttrc	large	500	syntax	223		162	13	229	81	0	13	38
+muttrc	fixture	5	syntax	147		136	11	134	77	0	7	2
+muttrc	large	500	syntax	250		148	13	212	81	0	7	34
+rasi	fixture	5	treesitter	134	138	125	12	130	71	2	0	1
+rasi	large	500	treesitter	197	184	147	14	205	83	2	2	17
+readline	fixture	6	treesitter	146	128	125	12	137	77	1	1	2
+readline	large	504	treesitter	238	188	139	13	244	96	1	6	66
+udevrules	fixture	2	treesitter	135	129	166	14	137	74	2	1	2
+udevrules	large	500	treesitter	389	235	203	16	464	84	2	16	162
+xdefaults	fixture	5	syntax	157		154	16	161	87	0	4	1
+xdefaults	large	500	syntax	182		128	13	176	97	0	3	10
+xcompose	fixture	3	treesitter	120	137	127	12	128	67	1	1	1
+xcompose	large	501	treesitter	302	203	158	13	306	85	1	9	116
+systemd	fixture	6	syntax	131		126	11	139	74	0	3	0
+systemd	large	504	syntax	176		138	14	183	84	0	3	6
+just	fixture	6	treesitter	247	140	222	12	219	68	3	34	47
+just	large	504	treesitter	386	213	225	13	435	80	2	43	159
+kdl	fixture	6	treesitter	135	125	125	12	143	71	4	1	2
+kdl	large	504	treesitter	247	184	143	12	264	83	4	8	66
+json5	fixture	6	treesitter	149	146	127	12	132	68	1	1	2
+json5	large	504	treesitter	240	179	143	12	237	85	1	5	61
+hjson	fixture	9	treesitter	131	125	128	17	174	73	1	1	2
+hjson	large	504	treesitter	305	227	158	15	276	109	1	5	53
+gotmpl	fixture	4	treesitter	160	137	142	12	169	79	4	2	3
+gotmpl	large	500	treesitter	385	185	163	13	381	96	4	14	185
+prisma	fixture	5	treesitter	125	122	122	11	143	67	2	1	2
+prisma	large	500	treesitter	288	170	145	14	248	92	2	6	92
+astro	fixture	5	treesitter	481	376	489	11	503	72	3	158	140
+astro	large	500	treesitter	728	574	509	12	740	79	4	145	237
+mermaid	fixture	4	treesitter	129	126	127	13	140	77	3	1	1
+mermaid	large	500	treesitter	265	183	186	19	374	81	2	12	83
+meson	fixture	3	treesitter	157	194	164	11	136	100	4	2	2
+meson	large	501	treesitter	303	172	172	15	321	83	3	10	128
+nu	fixture	5	treesitter	178	137	169	11	160	65	34	1	2
+nu	large	500	treesitter	305	240	198	13	312	82	31	21	91
+gleam	fixture	6	treesitter	150	140	140	11	139	73	9	1	2
+gleam	large	504	treesitter	245	207	156	12	272	97	10	7	67
+fennel	fixture	4	treesitter	167	133	139	9	113	69	44	1	3
+fennel	large	500	treesitter	249	109	118	9	235	50	27	6	103
+cuda	fixture	5	treesitter	354	84	367	7	353	41	252	1	2
+cuda	large	500	treesitter	429	133	356	8	452	51	266	9	56
+po	fixture	7	treesitter	82	79	79	7	80	47	1	1	1
+po	large	504	treesitter	150	112	84	8	161	55	1	3	32
+pug	fixture	7	treesitter	166	85	175	7	161	47	4	42	46
+pug	large	504	treesitter	310	107	183	8	312	58	4	50	163
+ledger	fixture	4	treesitter	85	82	79	7	81	45	1	1	1
+ledger	large	500	treesitter	162	106	92	9	191	59	1	8	59
+beancount	fixture	5	treesitter	81	79	81	8	88	46	1	1	1
+beancount	large	500	treesitter	151	118	100	8	171	53	1	4	42
+dts	fixture	6	treesitter	81	90	86	7	83	44	2	1	1
+dts	large	504	treesitter	152	132	99	8	152	51	2	3	35
+ebnf	fixture	4	treesitter	87	82	80	7	80	42	1	1	1
+ebnf	large	500	treesitter	180	118	96	8	193	51	1	4	71
+cue	fixture	6	treesitter	99	74	97	7	110	44	21	1	1
+cue	large	504	treesitter	192	112	114	8	168	54	21	4	41
+dhall	fixture	3	treesitter	81	85	83	8	84	40	2	0	1
+dhall	large	501	treesitter	145	117	98	8	137	56	3	16	22
+handlebars	fixture	6	treesitter	110	116	109	8	111	43	2	1	2
+handlebars	large	504	treesitter	180	154	116	8	192	63	2	5	58
+conf	fixture	3	syntax	84		92	8	85	42	0	2	0
+conf	large	501	syntax	110		79	8	125	53	0	2	4
