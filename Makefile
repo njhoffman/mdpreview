@@ -1,8 +1,8 @@
-# mdpreview: install links, dependency checks, tests, benchmarks. Run `make help`.
+# nvcat: install links, dependency checks, tests, benchmarks. Run `make help`.
 
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
-COMMANDS := mdpreview mdpreview-dispatch
+COMMANDS := nvcat nvcat-dispatch
 PYTHON := /usr/bin/python3
 
 .PHONY: help install uninstall check check-dev deps test bench bench-filetypes dispatch
@@ -10,15 +10,15 @@ PYTHON := /usr/bin/python3
 help:
 	@echo "make install     link $(COMMANDS) into $(BINDIR) (PREFIX=$(PREFIX))"
 	@echo "make uninstall   remove those links if they point into this checkout"
-	@echo "make check       runtime dependencies and resolved configuration (mdpreview --check)"
+	@echo "make check       runtime dependencies and resolved configuration (nvcat --check)"
 	@echo "make check-dev   development tools for the tests"
 	@echo "make deps        install the Python dependency for the current user (pip)"
 	@echo "make test        run the bats test suite"
 	@echo "make bench       run benchmarks/run (records history, updates SYNTAX.md)"
 	@echo "make bench-filetypes  run benchmarks/filetypes (records the baseline, updates docs/PERFORMANCE.md)"
-	@echo "make dispatch    regenerate mdpreview-dispatch from filetypes.json and bat"
+	@echo "make dispatch    regenerate nvcat-dispatch from filetypes.json and bat"
 
-# Links, not copies: mdpreview finds profile.lua, readonly.py and queries/ next to its real path.
+# Links, not copies: nvcat finds profile.lua, readonly.py and queries/ next to its real path.
 install: check
 	@mkdir -p "$(BINDIR)"
 	@for command in $(COMMANDS); do \
@@ -42,7 +42,7 @@ uninstall:
 check:
 	@$(PYTHON) -c 'import sys; sys.exit("python 3.11 or later required (tomllib)") if sys.version_info < (3, 11) else None'
 	@$(PYTHON) -c 'import msgpack' 2>/dev/null || { echo "python msgpack missing: run 'make deps' or install python3-msgpack" >&2; exit 1; }
-	@./mdpreview --check
+	@./nvcat --check
 
 check-dev:
 	@status=0; \

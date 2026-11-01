@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Ported from the historical fzf-check.py: mdpreview as the previewer of a real fzf in a pseudo-terminal.
+# Ported from the historical fzf-check.py: nvcat as the previewer of a real fzf in a pseudo-terminal.
 
 @test "fzf: scrolling, file changes, resize re-render, rapid selection, cleanup" {
   command -v fzf >/dev/null || skip "fzf not installed"
@@ -31,20 +31,20 @@ setup_names() {
   for name in "${names[@]}"; do printf 'line\n# MARK_HEADING\n' > "$name"; done
 }
 
-@test "fzf: {} passes names with pipes, colons, quotes, spaces and a leading dash to mdpreview" {
+@test "fzf: {} passes names with pipes, colons, quotes, spaces and a leading dash to nvcat" {
   setup_names
   for name in "${names[@]}"; do
     printf '%s\n' "$name" > "$work/list"
-    run_fzf "$work/list" "$BATS_TEST_DIRNAME/../mdpreview --lines 4 -- {}"
+    run_fzf "$work/list" "$BATS_TEST_DIRNAME/../nvcat --lines 4 -- {}"
     grep -q MARK_HEADING "$work/out" || { echo "$name: $(<"$work/out")"; return 1; }
   done
 }
 
-@test "fzf: {} passes the same names to mdpreview-dispatch" {
+@test "fzf: {} passes the same names to nvcat-dispatch" {
   setup_names
   for name in "${names[@]}"; do
     printf '%s\n' "$name" > "$work/list"
-    run_fzf "$work/list" "MDPREVIEW=$BATS_TEST_DIRNAME/../mdpreview $BATS_TEST_DIRNAME/../mdpreview-dispatch {}"
+    run_fzf "$work/list" "NVCAT=$BATS_TEST_DIRNAME/../nvcat $BATS_TEST_DIRNAME/../nvcat-dispatch {}"
     grep -q MARK_HEADING "$work/out" || { echo "$name: $(<"$work/out")"; return 1; }
   done
 }
@@ -53,7 +53,7 @@ setup_names() {
   setup_names
   command -v rg >/dev/null || skip "rg not installed"
   rg --no-config --color=never --line-number --with-filename --field-match-separator=$'\t' MARK_HEADING 'c:d.md' > "$work/list"
-  run_fzf "$work/list" "$BATS_TEST_DIRNAME/../mdpreview --lines 1 --start-line {2} -- {1}" --delimiter '\t'
+  run_fzf "$work/list" "$BATS_TEST_DIRNAME/../nvcat --lines 1 --start-line {2} -- {1}" --delimiter '\t'
   grep -q MARK_HEADING "$work/out" || { cat "$work/out"; return 1; }
   ! grep -q '^line' "$work/out"
 }

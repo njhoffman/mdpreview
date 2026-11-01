@@ -1,17 +1,17 @@
 #!/usr/bin/python3
-"""Drive mdpreview's built-in Neovim pager in a pseudo-terminal.
+"""Drive nvcat's built-in Neovim pager in a pseudo-terminal.
 
-Usage: pager_session.py SCENARIO FILE [MDPREVIEW-ARGS...]
-FILE "-" sends the file named by $STDIN_FILE on mdpreview's stdin. The document must be taller than the 20-row terminal and contain the markers PAGER_TOP (a level-one heading on the
+Usage: pager_session.py SCENARIO FILE [NVCAT-ARGS...]
+FILE "-" sends the file named by $STDIN_FILE on nvcat's stdin. The document must be taller than the 20-row terminal and contain the markers PAGER_TOP (a level-one heading on the
 first line), PAGER_MIDDLE, and PAGER_BOTTOM (on the last line). Scenarios:
   keys    first screen shows the rendered heading, not '# PAGER_TOP'; G reaches PAGER_BOTTOM; g g returns to
           the top; /PAGER_MIDDLE finds it; space pages down; q exits 0
   resize  a narrower terminal makes Neovim redraw; q still exits 0
-  term    SIGTERM to mdpreview while the pager is open exits 130
-  hup     SIGHUP to mdpreview while the pager is open exits non-zero
+  term    SIGTERM to nvcat while the pager is open exits 130
+  hup     SIGHUP to nvcat while the pager is open exits non-zero
   follow  --follow: appended lines appear, scrolling up pauses, G resumes, truncation reloads
   warning a broken lua highlights query is reported on screen, the file is colored, q exits 0
-Every scenario also checks that no Neovim started by this checkout outlives mdpreview.
+Every scenario also checks that no Neovim started by this checkout outlives nvcat.
 Prints "ok" on success; otherwise the reason and the tail of the screen output, and exits 1.
 """
 
@@ -46,7 +46,7 @@ for name in ["NVIM", "FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES"]:
   environment.pop(name, None)
 # FILE "-" reads the document from $STDIN_FILE on a pipe, so keys must come from /dev/tty.
 document = open(os.environ["STDIN_FILE"], "rb") if path == "-" else slave
-process = subprocess.Popen([str(ROOT / "mdpreview"), "--pager", "nvim", *extra, path], env=environment,
+process = subprocess.Popen([str(ROOT / "nvcat"), "--pager", "nvim", *extra, path], env=environment,
                            stdin=document, stdout=slave, stderr=slave, preexec_fn=session)
 os.close(slave)
 captured = bytearray()
@@ -117,7 +117,7 @@ def finish(expected):
   deadline = time.monotonic() + 10
   while process.poll() is None:
     if time.monotonic() > deadline:
-      fail("mdpreview did not exit")
+      fail("nvcat did not exit")
     read(0.1)
   if not expected(process.returncode):
     fail(f"unexpected exit status {process.returncode}")
@@ -173,12 +173,12 @@ if scenario == "follow":
   sys.exit(0)
 
 if scenario == "warning":
-  # A broken highlights query (MDPREVIEW_PARSER_DIR set by the caller): the document still opens with regex
+  # A broken highlights query (NVCAT_PARSER_DIR set by the caller): the document still opens with regex
   # syntax, the warning is shown as a notification, and the keys still work.
   until("PAGER_TOP", 0, "the first screen")
   quiet()
   screen = re.sub(r"\s+", " ", plain(captured))
-  if "mdpreview: lua highlights query failed (details: mdpreview --check)" not in screen:
+  if "nvcat: lua highlights query failed (details: nvcat --check)" not in screen:
     fail("no query warning on the screen")
   if "Press ENTER" in screen:
     fail("the warning needs a key press")

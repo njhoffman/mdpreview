@@ -10,12 +10,12 @@ import shutil
 import sys
 import tempfile
 
-from common import load_mdpreview
+from common import load_nvcat
 
 SGR = re.compile(rb"\x1b\[[0-9;:]*m")
-module = load_mdpreview()
+module = load_nvcat()
 path, end_marker = str(Path(sys.argv[1]).resolve()), sys.argv[2]
-with tempfile.TemporaryDirectory(prefix="mdpreview-roundtrip-") as work:
+with tempfile.TemporaryDirectory(prefix="nvcat-roundtrip-") as work:
   renderer = module.Renderer(shutil.which("nvim"), module.find_paths(), work, 80, 24, 8)
   try:
     output, _ = renderer.render(path, 80, 24, all_rows=True)

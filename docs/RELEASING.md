@@ -27,7 +27,7 @@ section and release them under a single version.
 4. Update [CHANGELOG.md](../CHANGELOG.md): move the `[Unreleased]` entries under the new version and date,
    describe every user-visible change (behavior, options, output, errors), and state the known limitations
    that remain. `VERSION` holds the same number (`bats tests/version.bats` checks both).
-5. Ensure `mdpreview --version` agrees with the tag (`bats tests/version.bats` checks a tagged HEAD).
+5. Ensure `nvcat --version` agrees with the tag (`bats tests/version.bats` checks a tagged HEAD).
 6. Commit the release contents on the intended branch.
 7. Create an annotated tag, then push the branch and that exact tag together:
 

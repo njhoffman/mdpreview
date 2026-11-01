@@ -1,16 +1,16 @@
 #!/usr/bin/env bats
 # The built-in Neovim pager (--pager nvim, the default): keys, resize, signals, stdin, the auto-mode probe,
-# and selecting it or an external pager through --pager, MDPREVIEW_PAGER, and the config file.
+# and selecting it or an external pager through --pager, NVCAT_PAGER, and the config file.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   HELPERS=$BATS_TEST_DIRNAME/helpers
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
-  unset NVIM FZF_PREVIEW_COLUMNS FZF_PREVIEW_LINES MDPREVIEW_PAGER
-  export MDPREVIEW_CONFIG=$BATS_TEST_TMPDIR/config.toml
+  unset NVIM FZF_PREVIEW_COLUMNS FZF_PREVIEW_LINES NVCAT_PAGER
+  export NVCAT_CONFIG=$BATS_TEST_TMPDIR/config.toml
   DOCUMENT=$BATS_TEST_TMPDIR/pager.md
   { echo '# PAGER_TOP'; echo
     for i in $(seq 1 30); do echo "- item $i"; done
@@ -38,9 +38,9 @@ session() {
   mkdir -p "$broken/queries/lua"
   echo '(no_such_node) @keyword' > "$broken/queries/lua/highlights.scm"
   { echo '-- PAGER_TOP'; for i in $(seq 1 40); do echo "local x$i = \"item $i\""; done; } > "$BATS_TEST_TMPDIR/pager.lua"
-  MDPREVIEW_PARSER_DIR=$broken session warning "$BATS_TEST_TMPDIR/pager.lua"
+  NVCAT_PARSER_DIR=$broken session warning "$BATS_TEST_TMPDIR/pager.lua"
   # The same file through the renderer reports the regex engine, so the pager is not the only evidence.
-  MDPREVIEW_PARSER_DIR=$broken run --separate-stderr "$MDPREVIEW" --paging=never --timings-json "$BATS_TEST_TMPDIR/pager.lua"
+  NVCAT_PARSER_DIR=$broken run --separate-stderr "$NVCAT" --paging=never --timings-json "$BATS_TEST_TMPDIR/pager.lua"
   [[ $stderr == *'"engine": "syntax"'* ]]
 }
 
@@ -49,14 +49,14 @@ session() {
 }
 
 @test "--follow refuses stdin, an external pager, a viewport and a pipe in one line" {
-  run --separate-stderr "$MDPREVIEW" --follow - < "$DOCUMENT"
-  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs a file, not stdin' ]
-  run --separate-stderr "$MDPREVIEW" --follow --pager less "$DOCUMENT"
-  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs the nvim pager (--pager nvim)' ]
-  run --separate-stderr "$MDPREVIEW" --follow --lines 5 "$DOCUMENT"
-  [ "$status" -eq 1 ] && [[ $stderr == 'mdpreview: --follow pages the whole file;'* ]]
-  run --separate-stderr "$MDPREVIEW" --follow "$DOCUMENT"
-  [ "$status" -eq 1 ] && [ "$stderr" = 'mdpreview: --follow needs a terminal on stdout' ]
+  run --separate-stderr "$NVCAT" --follow - < "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'nvcat: --follow needs a file, not stdin' ]
+  run --separate-stderr "$NVCAT" --follow --pager less "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'nvcat: --follow needs the nvim pager (--pager nvim)' ]
+  run --separate-stderr "$NVCAT" --follow --lines 5 "$DOCUMENT"
+  [ "$status" -eq 1 ] && [[ $stderr == 'nvcat: --follow pages the whole file;'* ]]
+  run --separate-stderr "$NVCAT" --follow "$DOCUMENT"
+  [ "$status" -eq 1 ] && [ "$stderr" = 'nvcat: --follow needs a terminal on stdout' ]
 }
 
 @test "--follow pages a file over the 10 MiB render limit" {
@@ -83,21 +83,21 @@ session() {
 }
 
 @test "auto prints a document that fits the terminal instead of opening the pager" {
-  run timeout 30 script -qec "stty rows 20 cols 80; '$MDPREVIEW' '$FIXTURES/markdown/sample.md'; echo rc=\$?" /dev/null < /dev/null
+  run timeout 30 script -qec "stty rows 20 cols 80; '$NVCAT' '$FIXTURES/markdown/sample.md'; echo rc=\$?" /dev/null < /dev/null
   [[ $output == *Title* ]]
   [[ $output == *rc=0* ]]
   [[ $output != *$'\e[?1049h'* ]]  # Neovim's TUI switches to the alternate screen; printing does not.
 }
 
 @test "always opens the pager even for a short non-Markdown file, and q quits" {
-  run timeout 30 bash -c "{ sleep 2; printf q; } | script -qec \"stty rows 20 cols 80; '$MDPREVIEW' --paging=always '$FIXTURES/kdl/config.kdl'; echo rc=\\\$?\" /dev/null"
+  run timeout 30 bash -c "{ sleep 2; printf q; } | script -qec \"stty rows 20 cols 80; '$NVCAT' --paging=always '$FIXTURES/kdl/config.kdl'; echo rc=\\\$?\" /dev/null"
   [[ $output == *$'\e[?1049h'* ]]
   [[ $output == *package* ]]
   [[ $output == *rc=0* ]]
 }
 
 @test "always without a terminal prints the complete document" {
-  run --separate-stderr "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
+  run --separate-stderr "$NVCAT" --columns 80 --paging=always "$DOCUMENT"
   [ "$status" -eq 0 ]
   [[ $output == *PAGER_BOTTOM* ]]
 }
@@ -117,38 +117,38 @@ pager_command() {
 externally_paged() { [ "${lines[0]}" = ==PAGED== ] && [[ $output == *PAGER_BOTTOM* ]]; }
 
 @test "--pager with a command line uses that external pager" {
-  run "$MDPREVIEW" --columns 80 --paging=always --pager "$(pager_command)" "$DOCUMENT"
+  run "$NVCAT" --columns 80 --paging=always --pager "$(pager_command)" "$DOCUMENT"
   externally_paged
 }
 
-@test "MDPREVIEW_PAGER selects an external pager" {
-  MDPREVIEW_PAGER=$(pager_command) run "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
+@test "NVCAT_PAGER selects an external pager" {
+  NVCAT_PAGER=$(pager_command) run "$NVCAT" --columns 80 --paging=always "$DOCUMENT"
   externally_paged
 }
 
 @test "the config file's pager key selects an external pager" {
-  printf "pager = \"%s\"\n" "$(pager_command | sed 's/"/\\"/g')" > "$MDPREVIEW_CONFIG"
-  run "$MDPREVIEW" --columns 80 --paging=always "$DOCUMENT"
+  printf "pager = \"%s\"\n" "$(pager_command | sed 's/"/\\"/g')" > "$NVCAT_CONFIG"
+  run "$NVCAT" --columns 80 --paging=always "$DOCUMENT"
   externally_paged
 }
 
-@test "--pager nvim overrides an external MDPREVIEW_PAGER" {
+@test "--pager nvim overrides an external NVCAT_PAGER" {
   # The keys scenario only passes in the Neovim pager.
-  MDPREVIEW_PAGER=$(pager_command) session keys "$DOCUMENT"
+  NVCAT_PAGER=$(pager_command) session keys "$DOCUMENT"
 }
 
 @test "--pager less runs less -R" {
   mkdir "$BATS_TEST_TMPDIR/bin"
   printf '#!/bin/sh\necho "==PAGED== $*"\ncat\n' > "$BATS_TEST_TMPDIR/bin/less"
   chmod +x "$BATS_TEST_TMPDIR/bin/less"
-  PATH=$BATS_TEST_TMPDIR/bin:$PATH run "$MDPREVIEW" --columns 80 --paging=always --pager less "$DOCUMENT"
+  PATH=$BATS_TEST_TMPDIR/bin:$PATH run "$NVCAT" --columns 80 --paging=always --pager less "$DOCUMENT"
   [ "${lines[0]}" = '==PAGED== -R' ]
   [[ $output == *PAGER_BOTTOM* ]]
 }
 
 @test "--check reports the pager and its source" {
-  run "$MDPREVIEW" --check
+  run "$NVCAT" --check
   [[ $output == *'pager            nvim  [default]'* ]]
-  MDPREVIEW_PAGER=less run "$MDPREVIEW" --check
-  [[ $output == *'pager            less  [MDPREVIEW_PAGER]'* ]]
+  NVCAT_PAGER=less run "$NVCAT" --check
+  [[ $output == *'pager            less  [NVCAT_PAGER]'* ]]
 }

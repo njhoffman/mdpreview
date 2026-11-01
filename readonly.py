@@ -12,7 +12,7 @@ def landlock_abi():
 
 
 def restrict_writes(directory):
-    """Allow writes only under directory (the per-run mdpreview-* directory) and to terminal devices, for this
+    """Allow writes only under directory (the per-run nvcat-* directory) and to terminal devices, for this
     process and its children."""
     libc = ctypes.CDLL(None, use_errno=True)
     abi = landlock_abi()

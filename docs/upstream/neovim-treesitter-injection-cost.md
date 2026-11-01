@@ -63,4 +63,4 @@ built once per `on_win`, and `_on_conceal_line` limited to trees containing the 
 ## Context
 
 Found while rendering Markdown to ANSI through an embedded Neovim with render-markdown.nvim
-(https://github.com/njhoffman/mdpreview); a 1,000-row document with large tables did not render within 120 s.
+(https://github.com/njhoffman/nvcat); a 1,000-row document with large tables did not render within 120 s.

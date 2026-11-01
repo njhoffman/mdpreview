@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Drive fzf in a pseudo-terminal with mdpreview as the previewer.
+"""Drive fzf in a pseudo-terminal with nvcat as the previewer.
 
 Checks preview scrolling to the bottom and back, moving between files, a re-render with smaller dimensions
 after a terminal resize, rapid selection changes, and that no embedded Neovim outlives fzf.
@@ -27,7 +27,7 @@ files = [str(Path(name).resolve()) for name in sys.argv[1:]]
 markers = [pair.split(",") for pair in os.environ["MARKERS"].split(";")]
 assert len(files) >= 3 and len(markers) == len(files), "need three files and a marker pair for each"
 baseline = embedded_nvims()
-work = Path(tempfile.mkdtemp(prefix="mdpreview-fzf-"))
+work = Path(tempfile.mkdtemp(prefix="nvcat-fzf-"))
 log = work / "dimensions.jsonl"
 wrapper = work / "preview"
 wrapper.write_text(f"""#!/usr/bin/python3
@@ -35,7 +35,7 @@ import json, os, sys
 with open({str(log)!r}, "a") as handle:
   handle.write(json.dumps({{"columns": os.environ.get("FZF_PREVIEW_COLUMNS"),
                             "lines": os.environ.get("FZF_PREVIEW_LINES"), "path": sys.argv[1]}}) + "\\n")
-os.execv({str(ROOT / 'mdpreview')!r}, ["mdpreview", "--all", sys.argv[1]])
+os.execv({str(ROOT / 'nvcat')!r}, ["nvcat", "--all", sys.argv[1]])
 """)
 wrapper.chmod(0o700)
 log.write_text("")

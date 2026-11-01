@@ -3,8 +3,8 @@
 
 Waits until the 1-minute load average is low enough, then renders each sample several times in three modes
 (complete output, a 40-row viewport, and fzf's preview environment) and records the median wall time, the
-median startup time (until Neovim is set up, from mdpreview --timings-json) and the median peak RSS of Neovim
-and of mdpreview itself. The SYNTAX.md table compares the new wall-time medians with the average of all
+median startup time (until Neovim is set up, from nvcat --timings-json) and the median peak RSS of Neovim
+and of nvcat itself. The SYNTAX.md table compares the new wall-time medians with the average of all
 earlier runs.
 """
 
@@ -21,13 +21,13 @@ HISTORY = HERE / "history.tsv"
 SYNTAX = ROOT / "SYNTAX.md"
 SAMPLES = ["small", "medium", "large", "code"]
 COLUMNS, LINES = 100, 40
-# fzf: no size flags; mdpreview takes the size from fzf's variables and emits one viewport, as in a preview.
+# fzf: no size flags; nvcat takes the size from fzf's variables and emits one viewport, as in a preview.
 MODES = {
   "complete": (["--all", "--budget", "0"], {}),
   "viewport": (["--lines", str(LINES)], {}),
   "fzf": ([], {"FZF_PREVIEW_COLUMNS": str(COLUMNS), "FZF_PREVIEW_LINES": str(LINES)}),
 }
-# Phases up to a ready Neovim (mdpreview --timings-json). Python's own interpreter start precedes them.
+# Phases up to a ready Neovim (nvcat --timings-json). Python's own interpreter start precedes them.
 STARTUP_PHASES = ["python imports", "config", "input and filetype", "startup"]
 FIELDS = ["date", "version", "commit", "sample", "mode", "median_ms", "min_ms", "runs", "load1", "nvim",
           "startup_ms", "nvim_rss_mib", "python_rss_mib"]
@@ -35,10 +35,10 @@ START, END = "<!-- benchmark:start -->", "<!-- benchmark:end -->"
 
 
 def measure(sample, mode, runs, timeout):
-  """Median and minimum wall ms, median startup ms, and median peak RSS (MiB) of Neovim and of mdpreview."""
+  """Median and minimum wall ms, median startup ms, and median peak RSS (MiB) of Neovim and of nvcat."""
   flags, variables = MODES[mode]
   size = [] if variables else ["--columns", str(COLUMNS)]
-  command = [str(ROOT / "mdpreview"), "--paging=never", *size, "--timeout", str(timeout), "--timings-json",
+  command = [str(ROOT / "nvcat"), "--paging=never", *size, "--timeout", str(timeout), "--timings-json",
              *flags, str(HERE / f"{sample}.md")]
   environment = {name: value for name, value in os.environ.items()
                  if name not in ("FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES", "NVIM")}
@@ -100,7 +100,7 @@ def table(rows, previous):
     f"uses `--all --budget 0`, viewport `--lines {LINES}`, fzf sets `FZF_PREVIEW_COLUMNS={COLUMNS}` and "
     f"`FZF_PREVIEW_LINES={LINES}` (the time to the first usable fzf preview). Startup is the time until Neovim "
     "is set up (`--timings`), excluding Python's interpreter start; RSS is the peak of Neovim and of "
-    "mdpreview's Python. Averages compare wall time with all earlier runs in "
+    "nvcat's Python. Averages compare wall time with all earlier runs in "
     "[benchmarks/history.tsv](benchmarks/history.tsv); regenerate with `benchmarks/run`.",
     "",
     "| Sample | Lines | Code blocks | Mode | Latest (ms) | Average (ms) | Runs averaged | vs average | "
@@ -142,7 +142,7 @@ def main():
                       help="Highest 1-minute load average to start at (default: 0.6 x CPUs)")
   parser.add_argument("--max-wait", type=float, default=900, help="Seconds to wait for the load (default: 900)")
   parser.add_argument("--interval", type=float, default=15, help="Seconds between load checks (default: 15)")
-  parser.add_argument("--timeout", type=int, default=60, help="mdpreview --timeout per render (default: 60)")
+  parser.add_argument("--timeout", type=int, default=60, help="nvcat --timeout per render (default: 60)")
   parser.add_argument("--dry-run", action="store_true", help="Print the table without recording anything")
   args = parser.parse_args()
   if not wait_for_load(args.max_load, args.max_wait, args.interval):

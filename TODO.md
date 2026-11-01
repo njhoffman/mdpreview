@@ -16,15 +16,15 @@ Reviewed: 2026-10-31
 - [x] (p2) [test] Exercise parser/query mismatches and missing dependencies with actionable errors.
 - [x] (p2) [test] Test released Neovim versions and declare the supported minimum.
   0.11 (`tests/nvim-versions`); 0.10 cannot load current ABI-15 parsers and is refused in one line.
-- [ ] **`--check` with any other option demands a file.** (p3) [bug] Only a bare `--check` (and `--check --all`)
-  bypasses argparse's required `file`, so `mdpreview --check --nvim X` fails with a usage error.
+- [x] **`--check` with any other option demands a file.** (p3) [bug] Only a bare `--check` (and `--check --all`)
+  bypasses argparse's required `file`, so `nvcat --check --nvim X` fails with a usage error.
 - [x] **Landlock allows writes to all of /tmp.** (p3) [refactor] `readonly.py` grants full write rights on
-  `/tmp` rather than only the per-run `mdpreview-*` directory; scope the rule to that directory.
+  `/tmp` rather than only the per-run `nvcat-*` directory; scope the rule to that directory.
 - [x] (p2) [docs] Document the Linux/Landlock requirement and remove experiment-only helper entrypoints.
 
 ## CLI and fzf integration
 
-- [x] **Large tables hang rendering: `mdpreview SYNTAX.md` times out.** (p1) [bug] Two causes, both fixed for
+- [x] **Large tables hang rendering: `nvcat SYNTAX.md` times out.** (p1) [bug] Two causes, both fixed for
   viewports: Neovim's `conceal_lines` hook (dropped from the Markdown highlights query in `profile.lua`) and
   render-markdown's debounce dropping the post-resize update (`config.debounce = 0`).
 - [x] **Complete output of very large tables is still too slow.** (p1) [perf] Mitigated: two forced redraws
@@ -40,17 +40,17 @@ Reviewed: 2026-10-31
   `docs/upstream/neovim-treesitter-injection-cost.md`. Needs `gh auth login`; search for duplicates first,
   then link the issue here and drop the workaround notes once fixed upstream.
 - [x] **Non-numeric fzf size variables give a raw ValueError.** (p3) [bug] `int(os.environ["FZF_PREVIEW_COLUMNS"])`
-  in `mdpreview` main() prints `invalid literal for int()`; report which variable was bad instead.
+  in `nvcat` main() prints `invalid literal for int()`; report which variable was bad instead.
 - [x] **less shows Nerd Font icons as `<U+F0CA3>`.** (p1) [bug] less treats Private Use Area code points as
   non-printable; `page()` now sets `LESSUTFCHARDEF` for those ranges unless the user has one.
 - [x] (p2) [feature] Add `--version` and keep its output consistent with the release tag.
 - [ ] (p3) [docs] Provide a checked-in mixed-file fzf integration example with bat fallback and resize refresh.
 - [x] (p2) [test] Verify Markdown aliases, uppercase extensions, symlinks, empty files, and renderer failures.
 - [x] (p2) [bug] Review selection parsing for filenames containing literal pipes or display separators.
-  mdpreview parses no selection; fzf quotes `{}`. A leading `-` needed `--` in the README example, and grep
+  nvcat parses no selection; fzf quotes `{}`. A leading `-` needed `--` in the README example, and grep
   matches are split on a tab instead of `:` (`tests/fzf.bats`).
-- [ ] **mdpreview-dispatch takes a file named `--print` as its flag.** (p3) [bug] `gen-dispatch` checks
-  `$1 == --print` and accepts no `--`; have it skip a leading `--` and document `mdpreview-dispatch -- {}`.
+- [ ] **nvcat-dispatch takes a file named `--print` as its flag.** (p3) [bug] `gen-dispatch` checks
+  `$1 == --print` and accepts no `--`; have it skip a leading `--` and document `nvcat-dispatch -- {}`.
 - [x] (p2) [docs] Clarify full-document versus viewport behavior and how scrolling interacts with each mode.
 - [x] (p2) [feature] Define readable fallbacks for input, row, and timeout limits.
 
@@ -60,7 +60,7 @@ Reviewed: 2026-10-31
   its aliases and scripts move to nvcat (`vimcat`/`vc`, `vimpage`, `vimtail`/`vt`, fzf-tab, lesspipe, tmux
   `viewer.sh`); nvimpager stays installed for a week as a fallback. Then delete `~/.config/nvimpager`, `~/.shell/deploy/recipes/nvimpager.sh` and the
   installed binary, and untrack them in dotbare.
-- [ ] **Replace nvimpager uses and aliases with mdpreview.** (p2) [chore] Depends on paging mode below.
+- [ ] **Replace nvimpager uses and aliases with nvcat.** (p2) [chore] Depends on paging mode below.
   `~/.shell/aliases/nvimpager.sh` defines `nvimpager` (wrapper), `vimcat`/`vc`, `vimpage`, `vimtail`/`vt`
   (`vt.nvim-log`, `vt.syslog`, ...), `vc.syn FT`, and `vc.tmux-keys` (stdin with `ft=tmux`). Other callers:
   `~/.shell/scripts/{vim-fzf-preview.sh,bat-list-preview,grc-list}`, `~/.shell/scripts/tools/vim-preview/`,
@@ -69,9 +69,9 @@ Reviewed: 2026-10-31
   detection must match the new command name). Then drop the deploy recipe
   (`~/.shell/deploy/recipes/nvimpager.sh`, `catalog.tsv`). Mapping: `-l/--language` -> `--filetype`,
   `-c` -> cat mode, `-p` -> paging mode. Gap: `-t/--tail` (follow a growing log) has no equivalent; decide
-  whether mdpreview gets a follow mode or `vimtail` stays on nvimpager.
+  whether nvcat gets a follow mode or `vimtail` stays on nvimpager.
 - [x] **Add a paging mode through less.** (p2) [feature] Render the complete document (as `--all` does) and pipe
-  it into `${MDPREVIEW_PAGER:-less -R}`; respect `$LESS`, and keep wide glyphs and RGB sequences intact.
+  it into `${NVCAT_PAGER:-less -R}`; respect `$LESS`, and keep wide glyphs and RGB sequences intact.
   Output over the row limit (1,000 since 0.8.0) should fall back to a clear error rather than a truncated page.
 - [x] **Embedded Neovim pager.** (p3) [feature] Done in 0.6.0 as the default `--pager nvim`: Neovim runs on the
   terminal with the same profile (no RPC attach needed), read-only, with live render-markdown, search,
@@ -85,11 +85,11 @@ Reviewed: 2026-10-31
   internal changes; ask upstream for a synchronous render API.
 - [x] **Pager query warnings are untested.** (p3) [test] `M.pager` in `profile.lua` shows Tree-sitter query
   warnings with `vim.notify`, but `tests/pager.bats` never breaks a query. Add a case with a broken
-  `queries/lua/highlights.scm` under `MDPREVIEW_PARSER_DIR` and assert the notification and the regex fallback.
+  `queries/lua/highlights.scm` under `NVCAT_PARSER_DIR` and assert the notification and the regex fallback.
 - [x] **Auto paging by default.** (p2) [feature] Decided: `--paging=auto|always|never` (matching bat), default
   `auto`: page with less when stdout is a terminal and the render is taller than the screen, otherwise cat.
   Treat `$FZF_PREVIEW_COLUMNS`/`LINES` and a `$NVIM` parent (Neovim terminal buffers, where Telescope's
-  previewer gives the command a real TTY) as cat. `mdpreview-dispatch` keeps forcing cat output.
+  previewer gives the command a real TTY) as cat. `nvcat-dispatch` keeps forcing cat output.
 
 ## Performance
 
@@ -101,8 +101,12 @@ Reviewed: 2026-10-31
   100-350 ms, markdown about 530 ms, astro about 710 ms, cuda about 950 ms (likely parser or injection
   loading). Record results in a doc and add a check that flags regressions. Also: a plain 5,000-line list
   takes over 8 s at the 4,096-row grid even without tables. (0.8.0: that was a stall, not slowness; Neovim
-  clamps the grid to 1,000 rows and mdpreview waited for a taller frame.)
+  clamps the grid to 1,000 rows and nvcat waited for a taller frame.)
   Done: `benchmarks/filetypes` (`--check` flags regressions), results in docs/PERFORMANCE.md.
+- [ ] **Tree-sitter guards cost about 10-15 ms at startup.** (p3) [perf] The `query.get`, `language.add` and
+  `treesitter.start` wrappers at the top of `profile.lua` load `vim.treesitter` before `setup()`; interleaved
+  runs on the kdl fixture (2026-10-31, load 5-7): v0.7.0 314 ms, 0.10.0 330 ms median, "profile.lua to setup"
+  +19 ms against "runtimepath" -9 ms. Install the wrappers lazily (on first use) and re-measure.
 - [ ] **grid_scroll copies the whole grid.** (p3) [perf] `Renderer.event` deep-copies every row on each
   `grid_scroll`, O(rows x columns) per scroll; at 1,000 rows this adds up. Copy only the scrolled region.
 - [x] (p2) [perf] Measure startup, first usable fzf content, total render time, and peak memory on representative documents.
@@ -139,7 +143,7 @@ Reviewed: 2026-10-31
 - [x] **No version file.** (p2) [chore] The version exists only as tag `v0.1.0` and README text. Add a
   top-level `VERSION` (and have `--version` read it) so bumps have one source of truth.
 - [x] **README states a stale version.** (p3) [docs] `README.md:8` says `0.6.0` / `v0.6.0` while `VERSION` is
-  `0.7.0`. Point at `VERSION` and `mdpreview --version` instead of repeating the number, so bumps cannot drift.
+  `0.7.0`. Point at `VERSION` and `nvcat --version` instead of repeating the number, so bumps cannot drift.
 
 ## Optional support for other filetypes
 
@@ -153,12 +157,12 @@ Reviewed: 2026-10-31
 - [x] **systemd entry is unreachable through dispatch.** (p3) [feature] bat's INI syntax claims `*.service`,
   `*.timer` and the other unit extensions, so `gen-dispatch` sends them to bat. Neovim's systemd syntax is
   more specific; set `"prefer_over_bat": true` on the entry in `filetypes.json` if it should win.
-- [ ] **Rename the project now that it is not Markdown-only.** (p3) [chore] `mdpreview` renders ~40 filetypes.
-  Candidates: `nvcat` (short, "cat through Neovim"), `nvim-cat` (matches the `nvim-md-cat` repo name),
+- [ ] **Rename the project now that it is not Markdown-only.** (p3) [chore] `nvcat` renders ~40 filetypes.
+  Candidates: `nvcat` (short, "cat through Neovim"), `nvim-cat` (matches the `nvcat` repo name),
   `nvpreview`, `vimprint`, `screencat` (describes the grid capture). Renaming touches the executable,
-  `mdpreview-dispatch`, the `mdpreview_ready` RPC event, the `_G.mdpreview` Lua module, the temp-dir prefix,
-  docs, and the PATH links; keep an `mdpreview` symlink for one release.
-- [ ] **Dispatch carries machine-specific paths.** (p3) [chore] `mdpreview-dispatch` embeds bat's version and
+  `nvcat-dispatch`, the `nvcat_ready` RPC event, the `_G.nvcat` Lua module, the temp-dir prefix,
+  docs, and the PATH links; keep an `nvcat` symlink for one release.
+- [ ] **Dispatch carries machine-specific paths.** (p3) [chore] `nvcat-dispatch` embeds bat's version and
   `--map-syntax`/home-directory globs from this machine's bat config; another machine must run
   `./gen-dispatch`, and `tests/dispatch.bats` fails until it does.
 - [x] **Render tests depend on this machine's Neovim setup.** (p2) [test] `tests/render.bats` needs the

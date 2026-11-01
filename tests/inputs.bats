@@ -6,14 +6,14 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
   HELPERS=$BATS_TEST_DIRNAME/helpers
 }
 
-# The filetype and engine mdpreview used for a file, from --timings-json.
+# The filetype and engine nvcat used for a file, from --timings-json.
 detected() {
-  "$MDPREVIEW" --paging=never --columns 60 --lines 3 --timings-json "$@" 2>&1 >/dev/null |
+  "$NVCAT" --paging=never --columns 60 --lines 3 --timings-json "$@" 2>&1 >/dev/null |
     python3 -c 'import json, sys; facts = json.loads(sys.stdin.read().splitlines()[-1]); print(facts["filetype"], facts["engine"])'
 }
 
@@ -50,7 +50,7 @@ detected() {
 @test "a chain of symbolic links renders the final target" {
   ln -s "$FIXTURES/markdown/sample.md" "$BATS_TEST_TMPDIR/one.md"
   ln -s "$BATS_TEST_TMPDIR/one.md" "$BATS_TEST_TMPDIR/two"
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 "$BATS_TEST_TMPDIR/two"
+  run --separate-stderr "$NVCAT" --paging=never --columns 60 "$BATS_TEST_TMPDIR/two"
   [ "$status" -eq 0 ]
   [[ $output == *'Title'* ]]
 }
@@ -63,9 +63,9 @@ detected() {
   mkdir directory.md
   for case in "missing.md:no such file" "broken.md:broken symbolic link to nowhere.md" \
               "loop-a:too many levels of symbolic links" "directory.md:not a regular file"; do
-    run "$MDPREVIEW" --paging=never --columns 60 "${case%%:*}"
+    run "$NVCAT" --paging=never --columns 60 "${case%%:*}"
     [ "$status" -eq 1 ]
-    [ "$output" = "mdpreview: ${case%%:*}: ${case#*:}" ] || { echo "$output"; return 1; }
+    [ "$output" = "nvcat: ${case%%:*}: ${case#*:}" ] || { echo "$output"; return 1; }
   done
 }
 
@@ -73,9 +73,9 @@ detected() {
   [ "$(id -u)" -ne 0 ] || skip "root reads any file"
   printf '# x\n' > "$BATS_TEST_TMPDIR/secret.md"
   chmod 000 "$BATS_TEST_TMPDIR/secret.md"
-  run "$MDPREVIEW" --paging=never --columns 60 "$BATS_TEST_TMPDIR/secret.md"
+  run "$NVCAT" --paging=never --columns 60 "$BATS_TEST_TMPDIR/secret.md"
   [ "$status" -eq 1 ]
-  [ "$output" = "mdpreview: $BATS_TEST_TMPDIR/secret.md: permission denied" ]
+  [ "$output" = "nvcat: $BATS_TEST_TMPDIR/secret.md: permission denied" ]
 }
 
 @test "empty inputs render as nothing in every mode" {
@@ -83,11 +83,11 @@ detected() {
   : > "$BATS_TEST_TMPDIR/empty.md"
   for arguments in "$BATS_TEST_TMPDIR/empty.kdl" "--lines 5 $BATS_TEST_TMPDIR/empty.md" \
                    "--all $BATS_TEST_TMPDIR/empty.md"; do
-    run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 $arguments
+    run --separate-stderr "$NVCAT" --paging=never --columns 60 $arguments
     [ "$status" -eq 0 ] && [ -z "$stderr" ] || { echo "$arguments: $status $stderr"; return 1; }
     [ -z "$(sed 's/\x1b\[[0-9;]*m//g' <<<"$output" | tr -d '[:space:]')" ]
   done
-  run --separate-stderr bash -c "'$MDPREVIEW' --paging=never --columns 60 - < /dev/null"
+  run --separate-stderr bash -c "'$NVCAT' --paging=never --columns 60 - < /dev/null"
   [ "$status" -eq 0 ]
   [ -z "$(sed 's/\x1b\[[0-9;]*m//g' <<<"$output" | tr -d '[:space:]')" ]
 }
@@ -96,7 +96,7 @@ detected() {
   before=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from common import embedded_nvims; print(" ".join(map(str, sorted(embedded_nvims()))))' "$HELPERS")
   source "$HELPERS/slow_input.sh"
   slow_input "$BATS_TEST_TMPDIR/slow.md"
-  "$MDPREVIEW" --paging=never --columns 100 --lines 40 --timeout 60 "$BATS_TEST_TMPDIR/slow.md" \
+  "$NVCAT" --paging=never --columns 100 --lines 40 --timeout 60 "$BATS_TEST_TMPDIR/slow.md" \
     > /dev/null 2> "$BATS_TEST_TMPDIR/stderr" &
   pid=$!
   victim=
@@ -110,13 +110,13 @@ detected() {
   code=0
   wait "$pid" || code=$?
   [ "$code" -eq 1 ]
-  grep -q '^mdpreview: Neovim exited before completing the preview' "$BATS_TEST_TMPDIR/stderr"
+  grep -q '^nvcat: Neovim exited before completing the preview' "$BATS_TEST_TMPDIR/stderr"
 }
 
 @test "a non-numeric fzf size variable is a usage error naming the variable" {
   for variable in FZF_PREVIEW_COLUMNS FZF_PREVIEW_LINES; do
     for value in abc -3 1.5 '10 x'; do
-      run --separate-stderr env "$variable=$value" "$MDPREVIEW" "$FIXTURES/markdown/sample.md"
+      run --separate-stderr env "$variable=$value" "$NVCAT" "$FIXTURES/markdown/sample.md"
       [ "$status" -eq 2 ] || { echo "$variable=$value: $status $stderr"; return 1; }
       [[ $stderr == *"$variable must be a whole number, got '$value'"* ]]
       [[ $stderr != *Traceback* ]]
@@ -125,8 +125,29 @@ detected() {
 }
 
 @test "empty fzf size variables count as unset" {
-  run --separate-stderr env FZF_PREVIEW_COLUMNS= FZF_PREVIEW_LINES= "$MDPREVIEW" --columns 80 --paging=never \
+  run --separate-stderr env FZF_PREVIEW_COLUMNS= FZF_PREVIEW_LINES= "$NVCAT" --columns 80 --paging=never \
     "$FIXTURES/markdown/sample.md"
   [ "$status" -eq 0 ]
   [[ $output == *Title* ]]
+}
+
+@test "without a file, piped stdin is rendered as with -" {
+  run --separate-stderr bash -c "printf '# Piped heading\n\ntext\n' | '$NVCAT' --paging=never --columns 60"
+  [ "$status" -eq 0 ] || { echo "$stderr"; return 1; }
+  [[ $output == *'Piped heading'* ]]
+  run --separate-stderr bash -c "printf 'local piped = 1\n' | '$NVCAT' --paging=never --columns 60 --filetype lua"
+  [ "$status" -eq 0 ]
+  [[ $output == *'piped'* ]]
+}
+
+@test "without a file on a terminal, a usage error names what is missing" {
+  run script -qec "'$NVCAT' --paging=never" /dev/null
+  [ "$status" -ne 0 ]
+  [[ $output == *'nvcat: error: a file is required (or pipe the input into nvcat)'* ]]
+}
+
+@test "--check needs no file alongside other options" {
+  run "$NVCAT" --check --nvim "$(command -v nvim)"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ $output == *'nvim '* ]]
 }

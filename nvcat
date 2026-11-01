@@ -22,7 +22,7 @@ import tempfile
 try:
   import msgpack
 except ImportError:
-  sys.exit("mdpreview: the Python package msgpack is missing; install python3-msgpack or run 'make deps'")
+  sys.exit("nvcat: the Python package msgpack is missing; install python3-msgpack or run 'make deps'")
 import resource
 
 import config
@@ -55,7 +55,7 @@ class Cancelled(Exception):
 
 def concise(error):
   """One readable message from a Neovim error: no stack trace, and only the innermost error of a chain such as
-  "BufReadPost Autocommands for ...: Vim(append):Lua callback: ...: E5113: ...". mdpreview's own assertions in
+  "BufReadPost Autocommands for ...: Vim(append):Lua callback: ...: E5113: ...". nvcat's own assertions in
   profile.lua lose their location; errors elsewhere keep it."""
   if isinstance(error, (list, tuple)) and len(error) == 2 and isinstance(error[1], str):
     error = error[1]  # RPC errors are [type, message].
@@ -120,7 +120,7 @@ class Timings:
     facts = ", ".join(f"{key} {report[key]}" for key in
                       ["filetype", "engine", "grid", "resizes", "ready_callbacks", "redraw_bytes"]
                       if key in report)
-    lines = [f"mdpreview timings (ms){': ' + facts if facts else ''}"]
+    lines = [f"nvcat timings (ms){': ' + facts if facts else ''}"]
     for name, value in report["phases"].items():
       parent, _, child = name.partition(": ")
       label = f"  {child}" if child else parent
@@ -144,7 +144,7 @@ def find_paths(settings=None):
     raise PreviewError(str(error)) from error
   errors, _ = config.problems(settings)
   if errors:
-    raise PreviewError("; ".join(errors) + " (see mdpreview --check)")
+    raise PreviewError("; ".join(errors) + " (see nvcat --check)")
   return dict(config.runtime_paths(settings), root=str(ROOT))
 
 
@@ -172,7 +172,7 @@ def check(installed=False):
   def git_version(path):
     return tool_version(["git", "-C", str(path), "describe", "--tags", "--always"]) if path else "not found"
   print("versions:")
-  print(f"  mdpreview        {version()}")
+  print(f"  nvcat        {version()}")
   print(f"  python           {sys.version.split()[0]}, msgpack {'.'.join(map(str, msgpack.version))}")
   print(f"  neovim           {tool_version([settings['nvim'], '--version']) if settings['nvim'] else 'not found'}")
   print(f"  render-markdown  {git_version(settings['render_markdown'])}")
@@ -215,12 +215,12 @@ def check_queries(settings, installed=False):
     if lang not in langs:
       langs.append(lang)
   paths = dict(config.runtime_paths(settings), root=str(ROOT))
-  with tempfile.TemporaryDirectory(prefix="mdpreview-", dir="/tmp") as temporary:
+  with tempfile.TemporaryDirectory(prefix="nvcat-", dir="/tmp") as temporary:
     env = isolated_environment(temporary)
-    env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "langs": langs, "installed": installed})
+    env["NVCAT_SESSION"] = json.dumps({"paths": paths, "langs": langs, "installed": installed})
     command = nvim_command(settings["nvim"], "--headless", "-c",
-                           "lua local s = vim.json.decode(vim.env.MDPREVIEW_SESSION); mdpreview.setup(nil, s.paths); "
-                           "mdpreview.check_queries(s.langs, s.installed)", "-c", "qa!")
+                           "lua local s = vim.json.decode(vim.env.NVCAT_SESSION); nvcat.setup(nil, s.paths); "
+                           "nvcat.check_queries(s.langs, s.installed)", "-c", "qa!")
     result = subprocess.run(command, cwd=temporary, env=env, capture_output=True, text=True,
                             timeout=300 if installed else 60)
   try:
@@ -279,7 +279,7 @@ class Renderer:
       self.request("nvim_ui_attach", width, height,
                    {"rgb": True, "ext_linegrid": True, "ext_messages": True})
       self.grid_rows(height)
-      self.request("nvim_exec_lua", "mdpreview.setup(...)", [channel, paths])
+      self.request("nvim_exec_lua", "nvcat.setup(...)", [channel, paths])
       self.timings.since("startup", self.spawned)
     except BaseException:
       self.close()
@@ -326,7 +326,7 @@ class Renderer:
         self.responses[message[1]] = message[2:]
       elif message[0] == 2:
         name, arguments = message[1:]
-        if name == "mdpreview_ready":
+        if name == "nvcat_ready":
           self.ready.append(arguments[0])
         elif name == "nvim_error_event":
           self.errors.append(concise(arguments))
@@ -377,7 +377,7 @@ class Renderer:
       self.pump(deadline)
     # notify_ready redrew just before signalling, and grid events precede the notification on the channel.
     with self.timings.phase("frames: info"):
-      info = self.request("nvim_exec_lua", "return mdpreview.info()", [])
+      info = self.request("nvim_exec_lua", "return nvcat.info()", [])
     # Plugins may leave v:errmsg set after a caught API error. Unhandled RPC/UI errors are authoritative.
     if self.errors:
       raise PreviewError("; ".join(self.errors))
@@ -387,7 +387,7 @@ class Renderer:
     self.budget_deadline = time.monotonic() + budget if all_rows and budget else None
     self.token += 1
     with self.timings.phase("open"):
-      self.request("nvim_exec_lua", "return mdpreview.open(...)",
+      self.request("nvim_exec_lua", "return nvcat.open(...)",
                    [str(path), start_line, self.token, filetype, self.syntax])
     with self.timings.phase("frames: first"):
       info = self.wait_ready(self.token, width, height)
@@ -402,10 +402,10 @@ class Renderer:
         height = min(MAX_ROWS, max(height * 2, info["total_height"] + 4))
         resizes += 1
         self.token += 1
-        self.request("nvim_exec_lua", "mdpreview.token = ...", [self.token])
+        self.request("nvim_exec_lua", "nvcat.token = ...", [self.token])
         self.request("nvim_ui_try_resize", width, height)
         self.grid_rows(height)
-        self.request("nvim_exec_lua", "mdpreview.resized(...)", [self.token])
+        self.request("nvim_exec_lua", "nvcat.resized(...)", [self.token])
         info = self.wait_ready(self.token, width, height)
       else:
         raise PreviewError("Document layout did not settle after resizing")
@@ -413,7 +413,7 @@ class Renderer:
       self.timings.since("frames: resizes", resized)
     self.record(info, width, height, resizes)
     for warning in info.get("warnings") or []:
-      print(f"mdpreview: warning: {warning}", file=sys.stderr)
+      print(f"nvcat: warning: {warning}", file=sys.stderr)
     count = min(height, info["remaining_height"])
     with self.timings.phase("ansi encode"):
       output = self.ansi(count)
@@ -428,7 +428,7 @@ class Renderer:
     phases["frames"] = phases.get("frames: first", 0) + phases.get("frames: resizes", 0)
     marks = info.get("marks") or {}
     if "startup" in phases and {"profile", "setup"} <= marks.keys():
-      # Both clocks are CLOCK_MONOTONIC on Linux, so Neovim's marks place on mdpreview's timeline.
+      # Both clocks are CLOCK_MONOTONIC on Linux, so Neovim's marks place on nvcat's timeline.
       phases["startup: neovim before profile.lua"] = (marks["profile"] - self.spawned) / 1e6
       phases["startup: neovim profile.lua to setup"] = (marks["setup"] - marks["profile"]) / 1e6
     # Neovim's figures are totals for its process, so they replace rather than add. render and redraw run once
@@ -622,7 +622,7 @@ def run_directory():
   exited: its pipe reaches end-of-file on any exit, including SIGKILL. Neovims passed to register_child() are
   stopped first."""
   global CLEANUP_PIPE
-  directory = tempfile.mkdtemp(prefix="mdpreview-", dir="/tmp")
+  directory = tempfile.mkdtemp(prefix="nvcat-", dir="/tmp")
   read_end, write_end = os.pipe()  # Not inherited by Neovim, bat or pagers (O_CLOEXEC).
   if os.fork() == 0:
     try:
@@ -631,7 +631,7 @@ def run_directory():
         signal.signal(number, signal.SIG_IGN)
       null = os.open(os.devnull, os.O_RDWR)
       for descriptor in (0, 1, 2):
-        os.dup2(null, descriptor)  # Release stdout, so fzf and pipes see end-of-file when mdpreview exits.
+        os.dup2(null, descriptor)  # Release stdout, so fzf and pipes see end-of-file when nvcat exits.
       os.closerange(3, read_end)
       os.closerange(read_end + 1, 1 << 16)
       cleanup_child(directory, read_end)
@@ -683,9 +683,9 @@ def page_nvim(executable, paths, temporary, path, filetype, syntax, follow=False
   """Open the document in a read-only Neovim on this terminal (q quits); return Neovim's exit status."""
   require_nvim_version(executable)
   env = isolated_environment(temporary)
-  env["MDPREVIEW_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype,
+  env["NVCAT_SESSION"] = json.dumps({"paths": paths, "path": str(path), "filetype": filetype,
                                            "syntax": syntax, "follow": follow})
-  command = nvim_command(executable, "-c", "lua mdpreview.pager(vim.json.decode(vim.env.MDPREVIEW_SESSION))")
+  command = nvim_command(executable, "-c", "lua nvcat.pager(vim.json.decode(vim.env.NVCAT_SESSION))")
   # Keys come from the terminal even when the document came from stdin.
   keyboard = None if sys.stdin.isatty() else open("/dev/tty", "rb")
   # Neovim puts the terminal in raw mode, so Ctrl-C reaches it as a key; ignore any stray SIGINT here.
@@ -740,8 +740,9 @@ def main():
     return check()
   if sorted(sys.argv[1:]) == ["--all", "--check"]:
     return check(installed=True)
-  parser.add_argument("-v", "--version", action="version", version=f"mdpreview {version()}")
-  parser.add_argument("file", type=Path, help="File to render, or - for stdin")
+  parser.add_argument("-v", "--version", action="version", version=f"nvcat {version()}")
+  parser.add_argument("file", type=Path, nargs="?",
+                      help="File to render, or - for stdin; without one, stdin when it is not a terminal")
   parser.add_argument("--filetype", help="Neovim filetype; defaults to the filetypes.json match, then Neovim "
                       "detection, then markdown (stdin: markdown)")
   parser.add_argument("--columns", type=positive, help="Output width; defaults to fzf or terminal width")
@@ -758,7 +759,7 @@ def main():
                       help="Page the file and reload it as it changes, staying at the end while the cursor is on "
                       "the last line (like less +F). Needs the nvim pager, a terminal and a file")
   parser.add_argument("--pager", help="nvim (built-in Neovim pager), less (less -R), or a pager command line; "
-                      "defaults to the configured pager (MDPREVIEW_PAGER), then nvim")
+                      "defaults to the configured pager (NVCAT_PAGER), then nvim")
   parser.add_argument("--budget", type=float, default=5.0,
                       help="Seconds allowed for complete output before falling back (default: 5; 0 disables)")
   parser.add_argument("--fallback", choices=["bat", "none"], default="bat",
@@ -779,6 +780,10 @@ def main():
   report.add_argument("--timings-json", dest="timings", action="store_const", const="json",
                       help="Like --timings, as one JSON object")
   args = parser.parse_args()
+  if args.file is None and not args.check:
+    if sys.stdin.isatty():
+      parser.error("a file is required (or pipe the input into nvcat)")
+    args.file = Path("-")
   args.fzf_columns = environment_number(parser, "FZF_PREVIEW_COLUMNS")
   args.fzf_lines = environment_number(parser, "FZF_PREVIEW_LINES")
   try:
@@ -797,7 +802,7 @@ def emit_timings(form, timings):
 def run(args, timings):
   start = time.monotonic_ns()
   if args.check:
-    return check()
+    return check(installed=args.all)
   try:
     settings = config.load()[0]
   except config.ConfigError as error:
@@ -904,7 +909,7 @@ def fall_back(error, args, path, width, filetype, viewport, timings, start_line=
     raise error
   if not shutil.which("bat"):
     raise PreviewError(f"{error}; bat, the fallback renderer, is not installed")
-  print(f"mdpreview: {error}; showing bat output instead (--fallback=none to fail)", file=sys.stderr)
+  print(f"nvcat: {error}; showing bat output instead (--fallback=none to fail)", file=sys.stderr)
   with timings.phase("bat fallback"):
     try:
       output = fallback_bat(path, width, (filetype or {}).get("filetype"), start_line, viewport)
@@ -945,5 +950,5 @@ if __name__ == "__main__":
   except (KeyboardInterrupt, Cancelled):
     raise SystemExit(130)
   except (PreviewError, OSError, ValueError) as error:
-    print(f"mdpreview: {error}", file=sys.stderr)
+    print(f"nvcat: {error}", file=sys.stderr)
     raise SystemExit(1)

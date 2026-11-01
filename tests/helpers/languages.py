@@ -11,7 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from common import load_mdpreview
+from common import load_nvcat
 
 SNIPPETS = {
   "c": 'const char *message = "hello"; // comment',
@@ -27,10 +27,10 @@ ALIASES = {"c++": "cpp", "cxx": "cpp", "cc": "cpp", "sh": "bash", "shell": "bash
            "py": "python"}
 CASES = {**SNIPPETS, **{alias: SNIPPETS[target] for alias, target in ALIASES.items()}}
 
-module = load_mdpreview()
+module = load_nvcat()
 width = int(sys.argv[1])
 marker = lambda name: f"VERIFY_{name}_CASE"
-with tempfile.TemporaryDirectory(prefix="mdpreview-languages-") as work:
+with tempfile.TemporaryDirectory(prefix="nvcat-languages-") as work:
   path = Path(work) / "languages.md"
   path.write_text("".join(f"## {marker(name)}\n\n```{name}\n{code}\n```\n\n" for name, code in CASES.items())
                   + "END_LANGUAGES\n")

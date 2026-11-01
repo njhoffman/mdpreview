@@ -5,7 +5,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
   SAMPLE=$FIXTURES/markdown/sample.md
 }
@@ -16,11 +16,11 @@ field() {
 }
 
 @test "--timings prints a phase table to stderr and leaves stdout unchanged" {
-  expected=$("$MDPREVIEW" --paging=never --columns 80 --all "$SAMPLE")
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --all --timings "$SAMPLE"
+  expected=$("$NVCAT" --paging=never --columns 80 --all "$SAMPLE")
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --all --timings "$SAMPLE"
   [ "$status" -eq 0 ]
   [ "$output" = "$expected" ]
-  [[ $stderr == 'mdpreview timings (ms): filetype markdown, engine render-markdown'* ]]
+  [[ $stderr == 'nvcat timings (ms): filetype markdown, engine render-markdown'* ]]
   for phase in 'python imports' startup 'neovim before profile.lua' 'setup: theme' open frames \
                'neovim redraw (all frames)' 'ansi encode' 'total (since the first import)' 'peak RSS'; do
     [[ $stderr == *"$phase"* ]] || { echo "missing phase: $phase"; return 1; }
@@ -28,7 +28,7 @@ field() {
 }
 
 @test "--timings-json reports phases, facts and peak memory as one JSON object" {
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --lines 20 --timings-json "$SAMPLE"
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --lines 20 --timings-json "$SAMPLE"
   [ "$status" -eq 0 ]
   [ "$(field 'r["filetype"], r["engine"], r["grid"], r["resizes"]')" = "('markdown', 'render-markdown', '80x20', 0)" ]
   [ "$(field 'all(v >= 0 for v in r["phases"].values())')" = True ]
@@ -44,36 +44,36 @@ field() {
   # Long wrapped lines at 20 columns need more rows than the source line count the grid starts with.
   file=$BATS_TEST_TMPDIR/wrapped.md
   for _ in 1 2 3 4 5 6; do printf '%s\n\n' "$(printf 'word %.0s' {1..40})"; done >"$file"
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 20 --all --timings-json "$file"
+  run --separate-stderr "$NVCAT" --paging=never --columns 20 --all --timings-json "$file"
   [ "$status" -eq 0 ]
   [ "$(field 'r["resizes"] >= 1 and r["phases"]["frames: resizes"] > 0')" = True ]
 }
 
 @test "the bat fallback is reported as the engine" {
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --budget 0.01 --timings-json "$SAMPLE"
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --budget 0.01 --timings-json "$SAMPLE"
   [ "$status" -eq 0 ]
   stderr=$(tail -1 <<<"$stderr")  # After the fallback notice
   [ "$(field 'r["engine"], "bat fallback" in r["phases"]')" = "('bat fallback', True)" ]
 }
 
 @test "timings are printed when the render fails" {
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --start-line 99999 --timings-json "$SAMPLE"
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --start-line 99999 --timings-json "$SAMPLE"
   [ "$status" -eq 1 ]
   [[ $stderr == *'"phases"'* ]]
   [[ $stderr == *'exceeds document length'* ]]
 }
 
 @test "--timings and --timings-json are mutually exclusive" {
-  run "$MDPREVIEW" --timings --timings-json "$SAMPLE"
+  run "$NVCAT" --timings --timings-json "$SAMPLE"
   [ "$status" -eq 2 ]
   [[ $output == *'not allowed with'* ]]
 }
 
 @test "--syntax regex uses Vim's syntax files for a Tree-sitter filetype" {
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --all --timings-json -- "$FIXTURES/kdl/config.kdl"
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --all --timings-json -- "$FIXTURES/kdl/config.kdl"
   [ "$(field 'r["engine"], r["ready_callbacks"]')" = "('treesitter', 1)" ]
   treesitter=$output
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --all --syntax regex --timings-json -- \
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --all --syntax regex --timings-json -- \
     "$FIXTURES/kdl/config.kdl"
   [ "$status" -eq 0 ]
   [ "$(field 'r["engine"], "open: regex syntax" in r["phases"], "open: parse" in r["phases"]')" = \
@@ -82,8 +82,8 @@ field() {
 }
 
 @test "--syntax regex renders Markdown without render-markdown" {
-  rendered=$("$MDPREVIEW" --paging=never --columns 80 --all "$SAMPLE")
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 80 --all --syntax regex --timings-json "$SAMPLE"
+  rendered=$("$NVCAT" --paging=never --columns 80 --all "$SAMPLE")
+  run --separate-stderr "$NVCAT" --paging=never --columns 80 --all --syntax regex --timings-json "$SAMPLE"
   [ "$status" -eq 0 ]
   [ "$(field 'r["engine"]')" = syntax ]
   [ "$output" != "$rendered" ]
@@ -92,6 +92,6 @@ field() {
 }
 
 @test "--syntax rejects unknown engines" {
-  run "$MDPREVIEW" --syntax treesitter "$SAMPLE"
+  run "$NVCAT" --syntax treesitter "$SAMPLE"
   [ "$status" -eq 2 ]
 }

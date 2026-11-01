@@ -4,7 +4,7 @@
 Each filetype is measured on its test fixture and on a larger file made by repeating that fixture to about
 --large-lines lines, with hyperfine: complete output (--all), complete output with Vim's regex syntax
 (--syntax regex, only where the filetype normally uses Tree-sitter), a viewport (--lines 40), bat on the same
-file, and mdpreview-dispatch (whose overhead is dispatch minus complete). One extra mdpreview --timings-json run
+file, and nvcat-dispatch (whose overhead is dispatch minus complete). One extra nvcat --timings-json run
 per file splits the time into startup, query compilation (vim.treesitter.start), parsing, and frames.
 
 Results go to benchmarks/filetypes.tsv (the baseline) and the table in docs/PERFORMANCE.md. With --check
@@ -64,7 +64,7 @@ def tile(source, temporary, lines):
 
 
 def report(path, filetype, extra=()):
-  command = [str(ROOT / "mdpreview"), "--paging=never", "--columns", str(COLUMNS), "--all", "--budget", "0",
+  command = [str(ROOT / "nvcat"), "--paging=never", "--columns", str(COLUMNS), "--all", "--budget", "0",
              "--timings-json", "--filetype", filetype, *extra, "--", str(path)]
   result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
   if result.returncode:
@@ -74,13 +74,13 @@ def report(path, filetype, extra=()):
 
 def commands(path, filetype, engine):
   quoted = shlex.quote(str(path))
-  mdpreview = f"{shlex.quote(str(ROOT / 'mdpreview'))} --paging=never --columns {COLUMNS} --filetype {filetype}"
+  nvcat = f"{shlex.quote(str(ROOT / 'nvcat'))} --paging=never --columns {COLUMNS} --filetype {filetype}"
   result = {
-    "all": f"{mdpreview} --all --budget 0 -- {quoted}",
-    "regex": f"{mdpreview} --all --budget 0 --syntax regex -- {quoted}",
-    "viewport": f"{mdpreview} --lines {LINES} -- {quoted}",
+    "all": f"{nvcat} --all --budget 0 -- {quoted}",
+    "regex": f"{nvcat} --all --budget 0 --syntax regex -- {quoted}",
+    "viewport": f"{nvcat} --lines {LINES} -- {quoted}",
     "bat": f"bat --color=always --paging=never --style=plain --terminal-width={COLUMNS} -- {quoted}",
-    "dispatch": f"{shlex.quote(str(ROOT / 'mdpreview-dispatch'))} {quoted}",
+    "dispatch": f"{shlex.quote(str(ROOT / 'nvcat-dispatch'))} {quoted}",
   }
   if engine == "syntax":
     del result["regex"]  # Already Vim's regex syntax
@@ -95,7 +95,7 @@ def hyperfine(named, runs, temporary):
   for name, command in named.items():
     arguments += ["--command-name", name, command]
   # dispatch takes the width from the terminal, which hyperfine does not give it: COLUMNS stands in.
-  environment = dict(os.environ, COLUMNS=str(COLUMNS), MDPREVIEW=str(ROOT / "mdpreview"))
+  environment = dict(os.environ, COLUMNS=str(COLUMNS), NVCAT=str(ROOT / "nvcat"))
   for name in ("NVIM", "FZF_PREVIEW_COLUMNS", "FZF_PREVIEW_LINES"):
     environment.pop(name, None)
   # hyperfine's outlier warnings go to stderr on most runs of this noisy machine; show them only on failure.
@@ -229,7 +229,7 @@ def main():
   info = dict(metadata(), runs=runs)
   baseline, comment = read_baseline()
   rows = []
-  with tempfile.TemporaryDirectory(prefix="mdpreview-bench-") as temporary:
+  with tempfile.TemporaryDirectory(prefix="nvcat-bench-") as temporary:
     for name in names:
       source = fixture(name)
       if source is None:

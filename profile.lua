@@ -1,9 +1,9 @@
 local hrtime = vim.uv.hrtime
--- timings: {name, milliseconds} per phase in first-recorded order, summed over repeats (mdpreview --timings).
--- marks: hrtime (CLOCK_MONOTONIC nanoseconds) when this profile was sourced and when setup began, so mdpreview
+-- timings: {name, milliseconds} per phase in first-recorded order, summed over repeats (nvcat --timings).
+-- marks: hrtime (CLOCK_MONOTONIC nanoseconds) when this profile was sourced and when setup began, so nvcat
 -- can split Neovim's startup.
 local M = { token = 0, timings = {}, marks = { profile = hrtime() }, warnings = {} }
-_G.mdpreview = M
+_G.nvcat = M
 
 -- Add the time since start (an hrtime) to phase name; returns now, so consecutive phases can chain.
 local function lap(name, start)
@@ -51,7 +51,7 @@ local function notify_ready(win)
     local start = lap("queued", scheduled)
     vim.cmd("redraw")
     lap("redraw", start)
-    vim.rpcnotify(M.channel, "mdpreview_ready", {
+    vim.rpcnotify(M.channel, "nvcat_ready", {
       token = token,
       buffer = vim.api.nvim_get_current_buf(),
       topline = vim.fn.winsaveview().topline,
@@ -113,7 +113,7 @@ local function guarded_get(lang, name)
     reported[key] = true
     local problem = query_problem(lang, name, result)
     local advice = problem:find("Query error", 1, true)
-        and "; update the " .. lang .. " parser and its queries together (see parser_dir in mdpreview --check)"
+        and "; update the " .. lang .. " parser and its queries together (see parser_dir in nvcat --check)"
       or ""
     table.insert(M.warnings, ("%s %s query failed: %s%s"):format(lang, name, problem, advice))
   end
@@ -143,8 +143,8 @@ vim.treesitter.language.add = function(lang, opts)
     reported["parser/" .. lang] = true
     local message = first_line(loaded)
     local advice = message:find("ABI version mismatch", 1, true)
-        and "; rebuild it for this Neovim or update Neovim (see parser_dir in mdpreview --check)"
-      or "; reinstall it (see parser_dir in mdpreview --check)"
+        and "; rebuild it for this Neovim or update Neovim (see parser_dir in nvcat --check)"
+      or "; reinstall it (see parser_dir in nvcat --check)"
     table.insert(M.warnings, ("%s parser failed to load: %s%s"):format(lang, message, advice))
   end
   error(loaded, 0)
@@ -180,7 +180,7 @@ function M.setup(channel, paths)
   if paths.icons then
     vim.opt.runtimepath:append(paths.icons)
   end
-  vim.opt.runtimepath:append(paths.root) -- queries/ shipped with mdpreview
+  vim.opt.runtimepath:append(paths.root) -- queries/ shipped with nvcat
   -- Prefer an installed parser/query directory over stale copies in plugin checkouts and the bundled ones.
   if paths.parser_dir then
     vim.opt.runtimepath:prepend(paths.parser_dir)
@@ -305,7 +305,7 @@ local function highlight(filetype, lang, syntax)
   end
 end
 
--- Edit path and highlight it. spec: {filetype, lang} from mdpreview, or nil to use Neovim's detection with a
+-- Edit path and highlight it. spec: {filetype, lang} from nvcat, or nil to use Neovim's detection with a
 -- Markdown fallback. syntax: "auto" (default) or "regex"; regex Markdown skips render-markdown.
 local function load(path, spec, syntax)
   M.syntax = syntax
@@ -389,8 +389,8 @@ function M.info()
 end
 
 -- Built-in pager: the document in this Neovim, attached to the user's terminal. session: {paths, path,
--- filetype} from mdpreview's page_nvim(). Keys follow less where Neovim's own would edit the buffer.
--- mdpreview --check: compile the highlights and injections queries of each language, and write a JSON report
+-- filetype} from nvcat's page_nvim(). Keys follow less where Neovim's own would edit the buffer.
+-- nvcat --check: compile the highlights and injections queries of each language, and write a JSON report
 -- to stdout: languages whose queries compile, those without a parser or a highlights query (shown with regex
 -- syntax), and the compile failures (M.warnings).
 -- installed: also every parser on the runtimepath, since code fences can inject any of them (slow).
@@ -443,12 +443,12 @@ function M.pager(session)
   vim.bo.modified = false
   if #M.warnings > 0 then
     -- One line that fits the screen: a longer message would stop at "Press ENTER" before the document is seen.
-    -- The full text is in mdpreview --check.
+    -- The full text is in nvcat --check.
     local failed = {}
     for _, warning in ipairs(M.warnings) do
       failed[#failed + 1] = warning:match("^(.- query) failed") or warning:match("^(%S+ parser) failed") or warning
     end
-    local message = ("mdpreview: %s failed (details: mdpreview --check)"):format(table.concat(failed, ", "))
+    local message = ("nvcat: %s failed (details: nvcat --check)"):format(table.concat(failed, ", "))
     -- Echoed during startup, before the first screen, even one line waits for a key; echo after VimEnter.
     vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = vim.schedule_wrap(function()
       if vim.fn.strdisplaywidth(message) >= vim.o.columns then

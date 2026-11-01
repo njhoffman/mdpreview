@@ -1,18 +1,18 @@
 #!/usr/bin/env bats
-# Configuration: defaults, config.toml, MDPREVIEW_* overrides, --check, and degraded rendering.
+# Configuration: defaults, config.toml, NVCAT_* overrides, --check, and degraded rendering.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   SAMPLE=$BATS_TEST_DIRNAME/fixtures/markdown/sample.md
   CONFIG=$BATS_TEST_TMPDIR/config.toml
-  export MDPREVIEW_CONFIG=$CONFIG
+  export NVCAT_CONFIG=$CONFIG
 }
 
 render() {
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 60 --all "$@" "$SAMPLE"
+  run --separate-stderr "$NVCAT" --paging=never --columns 60 --all "$@" "$SAMPLE"
 }
 
 colors() {
@@ -27,7 +27,7 @@ colors() {
 }
 
 @test "--check reports defaults and succeeds" {
-  run "$MDPREVIEW" --check
+  run "$NVCAT" --check
   [ "$status" -eq 0 ]
   [[ $output == *'(not found; using defaults)'* ]]
   [[ $output == *'render_markdown'*'[plugin_dirs]'* ]]
@@ -36,7 +36,7 @@ colors() {
 
 @test "config file values are used and reported with their source" {
   printf 'colorscheme = "habamax"\n' > "$CONFIG"
-  run "$MDPREVIEW" --check
+  run "$NVCAT" --check
   [[ $output == *"colorscheme      habamax  [$CONFIG]"* ]]
   render
   [ "$status" -eq 0 ]
@@ -53,8 +53,8 @@ colors() {
 
 @test "environment variables override the file" {
   printf 'colorscheme = "habamax"\n' > "$CONFIG"
-  MDPREVIEW_COLORSCHEME=default run "$MDPREVIEW" --check
-  [[ $output == *'colorscheme      default  [MDPREVIEW_COLORSCHEME]'* ]]
+  NVCAT_COLORSCHEME=default run "$NVCAT" --check
+  [[ $output == *'colorscheme      default  [NVCAT_COLORSCHEME]'* ]]
 }
 
 @test "unknown keys and invalid TOML are errors" {
@@ -69,17 +69,17 @@ colors() {
 }
 
 @test "missing render-markdown is a clear error" {
-  MDPREVIEW_RENDER_MARKDOWN=$BATS_TEST_TMPDIR/none render
+  NVCAT_RENDER_MARKDOWN=$BATS_TEST_TMPDIR/none render
   [ "$status" -eq 1 ]
-  [[ $stderr == *'render-markdown.nvim not found'*'mdpreview --check'* ]]
-  MDPREVIEW_RENDER_MARKDOWN=$BATS_TEST_TMPDIR/none run "$MDPREVIEW" --check
+  [[ $stderr == *'render-markdown.nvim not found'*'nvcat --check'* ]]
+  NVCAT_RENDER_MARKDOWN=$BATS_TEST_TMPDIR/none run "$NVCAT" --check
   [ "$status" -eq 1 ]
   [[ $output == *'error: render-markdown.nvim not found'* ]]
 }
 
 @test "missing optional files are skipped with a warning" {
   printf 'theme = "%s/none.lua"\nmarkdown_options = "%s/none.lua"\n' "$BATS_TEST_TMPDIR" "$BATS_TEST_TMPDIR" > "$CONFIG"
-  run "$MDPREVIEW" --check
+  run "$NVCAT" --check
   [ "$status" -eq 0 ]
   [[ $output == *'warning: markdown_options:'*'does not exist; skipped'* ]]
   [[ $output == *'warning: theme:'*'does not exist; skipped'* ]]
@@ -88,9 +88,9 @@ colors() {
 }
 
 @test "icons can be disabled" {
-  MDPREVIEW_ICONS= run "$MDPREVIEW" --check
+  NVCAT_ICONS= run "$NVCAT" --check
   [[ $output == *'warning: icons: mini.icons not found'* ]]
-  MDPREVIEW_ICONS= render
+  NVCAT_ICONS= render
   [ "$status" -eq 0 ]
   [[ $output == *Title* ]]
 }
@@ -131,6 +131,6 @@ colors() {
 }
 
 @test "--nvim overrides the configured executable" {
-  run "$MDPREVIEW" --paging=never --nvim "$BATS_TEST_TMPDIR/no-nvim" "$SAMPLE"
+  run "$NVCAT" --paging=never --nvim "$BATS_TEST_TMPDIR/no-nvim" "$SAMPLE"
   [ "$status" -eq 1 ]
 }

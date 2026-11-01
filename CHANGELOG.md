@@ -6,6 +6,23 @@ annotated `vMAJOR.MINOR.PATCH` Git tags.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-31
+
+### Added
+
+- Without a file argument nvcat reads stdin when it is not a terminal, like cat and bat
+  (`... | nvcat -c --filetype yaml`); on a terminal that is a usage error. `--check` no longer needs a file
+  when given other options, and `--check --all` works in any order.
+
+### Changed
+
+- Renamed from mdpreview to nvcat, with no compatibility aliases: the commands are `nvcat` and
+  `nvcat-dispatch`, environment variables are `NVCAT_*` (for example `NVCAT_PAGER`, `NVCAT_CONFIG`,
+  `NVCAT_PARSER_DIR`), the config file is `~/.config/nvcat/config.toml`, run directories are `/tmp/nvcat-*`,
+  and `tests/nvim-versions` caches Neovim in `~/.cache/nvcat/nvim`. Move an existing
+  `~/.config/mdpreview/config.toml` to `~/.config/nvcat/` and rerun `make install`. The GitHub repository is
+  now `njhoffman/nvcat`; the old URL redirects.
+
 ## [0.9.0] - 2026-10-31
 
 ### Added

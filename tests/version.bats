@@ -5,7 +5,7 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   VERSION=$(<"$ROOT/VERSION")
 }
 
@@ -14,20 +14,20 @@ setup() {
 }
 
 @test "--version prints the VERSION file without needing a file argument" {
-  run --separate-stderr "$MDPREVIEW" --version
+  run --separate-stderr "$NVCAT" --version
   [ "$status" -eq 0 ]
-  [ "$output" = "mdpreview $VERSION" ]
+  [ "$output" = "nvcat $VERSION" ]
 }
 
 @test "-v is --version" {
-  run --separate-stderr "$MDPREVIEW" -v
+  run --separate-stderr "$NVCAT" -v
   [ "$status" -eq 0 ]
-  [ "$output" = "mdpreview $VERSION" ]
+  [ "$output" = "nvcat $VERSION" ]
 }
 
 @test "--check reports the same version" {
-  run "$MDPREVIEW" --check
-  [[ $output == *"mdpreview        $VERSION"* ]]
+  run "$NVCAT" --check
+  [[ $output == *"nvcat        $VERSION"* ]]
 }
 
 @test "a tagged HEAD carries the tag of VERSION" {

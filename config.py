@@ -1,4 +1,4 @@
-"""mdpreview configuration: defaults, ~/.config/mdpreview/config.toml, and MDPREVIEW_* overrides.
+"""nvcat configuration: defaults, ~/.config/nvcat/config.toml, and NVCAT_* overrides.
 
 Every key is optional. Defaults follow the XDG base directories and lazy.nvim's plugin layout, so a stock
 Neovim with render-markdown.nvim installed through lazy.nvim works without a file. See config.example.toml.
@@ -36,7 +36,7 @@ def xdg(name, fallback):
 
 
 def config_file():
-  return Path(os.environ.get("MDPREVIEW_CONFIG") or xdg("XDG_CONFIG_HOME", ".config") / "mdpreview/config.toml")
+  return Path(os.environ.get("NVCAT_CONFIG") or xdg("XDG_CONFIG_HOME", ".config") / "nvcat/config.toml")
 
 
 def expand(value):
@@ -64,7 +64,7 @@ def defaults():
 def environment_overrides():
   values = {}
   for key, (kind, _) in KEYS.items():
-    raw = os.environ.get("MDPREVIEW_" + key.upper())
+    raw = os.environ.get("NVCAT_" + key.upper())
     if raw is not None:
       values[key] = raw.split(os.pathsep) if kind == "paths" else raw
   return values
@@ -86,7 +86,7 @@ def load(path=None):
     sources.update({key: str(path) for key in parsed})
   overrides = environment_overrides()
   values.update(overrides)
-  sources.update({key: "MDPREVIEW_" + key.upper() for key in overrides})
+  sources.update({key: "NVCAT_" + key.upper() for key in overrides})
 
   settings = {}
   for key, (kind, _) in KEYS.items():

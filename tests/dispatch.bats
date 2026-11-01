@@ -1,16 +1,16 @@
 #!/usr/bin/env bats
-# Routing in the generated mdpreview-dispatch, and its agreement with filetypes.py.
+# Routing in the generated nvcat-dispatch, and its agreement with filetypes.py.
 
 bats_require_minimum_version 1.5.0
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  DISPATCH=$ROOT/mdpreview-dispatch
+  DISPATCH=$ROOT/nvcat-dispatch
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
   STUBS=$BATS_TEST_TMPDIR/stubs
   mkdir -p "$STUBS"
-  printf '#!/bin/sh\necho "mdpreview $*"\n' > "$STUBS/mdpreview-ok"
-  printf '#!/bin/sh\necho partial; echo boom >&2; exit 1\n' > "$STUBS/mdpreview-fail"
+  printf '#!/bin/sh\necho "nvcat $*"\n' > "$STUBS/nvcat-ok"
+  printf '#!/bin/sh\necho partial; echo boom >&2; exit 1\n' > "$STUBS/nvcat-fail"
   printf '#!/bin/sh\necho "bat $*"\n' > "$STUBS/bat"
   chmod +x "$STUBS"/*
 }
@@ -97,30 +97,30 @@ print(" ".join(e["filetype"] for e in filetypes.load()))' "$ROOT")
 
 @test "filenames with spaces and leading dashes" {
   cp "$FIXTURES/markdown/sample.md" "$BATS_TEST_TMPDIR/-a b.md"
-  MDPREVIEW=$STUBS/mdpreview-ok BAT=$STUBS/bat run "$DISPATCH" "$BATS_TEST_TMPDIR/-a b.md"
-  [ "$output" = "mdpreview --all --paging=never --budget=2 --filetype markdown -- $BATS_TEST_TMPDIR/-a b.md" ]
+  NVCAT=$STUBS/nvcat-ok BAT=$STUBS/bat run "$DISPATCH" "$BATS_TEST_TMPDIR/-a b.md"
+  [ "$output" = "nvcat --all --paging=never --budget=2 --filetype markdown -- $BATS_TEST_TMPDIR/-a b.md" ]
 }
 
-@test "routed files call mdpreview with the filetype" {
-  MDPREVIEW=$STUBS/mdpreview-ok BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/tmux/.tmux.conf"
+@test "routed files call nvcat with the filetype" {
+  NVCAT=$STUBS/nvcat-ok BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/tmux/.tmux.conf"
   [ "$status" -eq 0 ]
-  [ "$output" = "mdpreview --all --paging=never --budget=2 --filetype tmux -- $FIXTURES/tmux/.tmux.conf" ]
+  [ "$output" = "nvcat --all --paging=never --budget=2 --filetype tmux -- $FIXTURES/tmux/.tmux.conf" ]
 }
 
 @test "other files go to bat" {
-  MDPREVIEW=$STUBS/mdpreview-ok BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/bat/script.py"
+  NVCAT=$STUBS/nvcat-ok BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/bat/script.py"
   [ "$output" = "bat --color=always --paging=never -- $FIXTURES/bat/script.py" ]
 }
 
-@test "mdpreview failure falls back to bat and hides mdpreview stderr" {
-  MDPREVIEW=$STUBS/mdpreview-fail BAT=$STUBS/bat run --separate-stderr "$DISPATCH" "$FIXTURES/kdl/config.kdl"
+@test "nvcat failure falls back to bat and hides nvcat stderr" {
+  NVCAT=$STUBS/nvcat-fail BAT=$STUBS/bat run --separate-stderr "$DISPATCH" "$FIXTURES/kdl/config.kdl"
   [ "$status" -eq 0 ]
   [ "${lines[-1]}" = "bat --color=always --paging=never -- $FIXTURES/kdl/config.kdl" ]
   [ -z "$stderr" ]
 }
 
-@test "missing mdpreview falls back to bat" {
-  MDPREVIEW=$BATS_TEST_TMPDIR/none BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/kdl/config.kdl"
+@test "missing nvcat falls back to bat" {
+  NVCAT=$BATS_TEST_TMPDIR/none BAT=$STUBS/bat run "$DISPATCH" "$FIXTURES/kdl/config.kdl"
   [ "$output" = "bat --color=always --paging=never -- $FIXTURES/kdl/config.kdl" ]
 }
 

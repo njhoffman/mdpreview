@@ -6,18 +6,18 @@
 #   tests/nvim-versions -- tests/render.bats # other bats arguments
 #   tests/nvim-versions --list               # the default versions
 #
-# Each version runs with its nvim first on PATH and as MDPREVIEW_NVIM. Your parsers, queries, theme and
+# Each version runs with its nvim first on PATH and as NVCAT_NVIM. Your parsers, queries, theme and
 # render-markdown are used as configured, so a failure can come from them as well as from Neovim: parsers
 # built for a newer Tree-sitter ABI do not load in older Neovim. Downloads are checked against the SHA-256
-# digests pinned here; another version needs MDPREVIEW_NVIM_SHA256=<digest>. Cache:
-# ${XDG_CACHE_HOME:-~/.cache}/mdpreview/nvim/<version>. Prints one summary line per version; exits 1 if any
+# digests pinned here; another version needs NVCAT_NVIM_SHA256=<digest>. Cache:
+# ${XDG_CACHE_HOME:-~/.cache}/nvcat/nvim/<version>. Prints one summary line per version; exits 1 if any
 # version failed.
 
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/mdpreview/nvim
-# 0.10.4 stays pinned below for the minimum-version test (dependencies.bats); mdpreview refuses it.
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/nvcat/nvim
+# 0.10.4 stays pinned below for the minimum-version test (dependencies.bats); nvcat refuses it.
 DEFAULT_VERSIONS=(v0.11.7 v0.12.6)
 DEFAULT_TESTS=(version config render robustness dependencies inputs fallback paging pager timings languages)
 
@@ -55,7 +55,7 @@ case $(uname -m) in
   aarch64|arm64) arch=arm64 ;;
   *) die "no Neovim release build for $(uname -m)" ;;
 esac
-[ "$(uname -s)" = Linux ] || die "Linux only (mdpreview needs Landlock)"
+[ "$(uname -s)" = Linux ] || die "Linux only (nvcat needs Landlock)"
 command -v curl >/dev/null || die "curl is required"
 command -v bats >/dev/null || die "bats is required"
 
@@ -66,8 +66,8 @@ install() {
     echo "$directory/bin/nvim"
     return
   fi
-  expected=${SHA256[$version/$arch]:-${MDPREVIEW_NVIM_SHA256:-}}
-  [ -n "$expected" ] || die "no pinned digest for $version/$arch; set MDPREVIEW_NVIM_SHA256"
+  expected=${SHA256[$version/$arch]:-${NVCAT_NVIM_SHA256:-}}
+  [ -n "$expected" ] || die "no pinned digest for $version/$arch; set NVCAT_NVIM_SHA256"
   mkdir -p "$CACHE"
   archive=$(mktemp "$CACHE/download.XXXXXX")
   trap 'rm -f "$archive"' RETURN
@@ -90,7 +90,7 @@ for version in "${versions[@]}"; do
   nvim=$(install "$version")
   log=$CACHE/$version.log
   echo "== $version: $("$nvim" --version | head -1)" >&2
-  if PATH=$(dirname "$nvim"):$PATH MDPREVIEW_NVIM=$nvim bats "${bats_args[@]}" > "$log" 2>&1; then
+  if PATH=$(dirname "$nvim"):$PATH NVCAT_NVIM=$nvim bats "${bats_args[@]}" > "$log" 2>&1; then
     result=passed
   else
     result=failed

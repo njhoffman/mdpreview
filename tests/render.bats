@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
-# End-to-end rendering through Neovim. Skipped when mdpreview --check reports missing required dependencies;
+# End-to-end rendering through Neovim. Skipped when nvcat --check reports missing required dependencies;
 # filetypes with neither a parser nor a Vim syntax file here are skipped by name.
 
 bats_require_minimum_version 1.5.0
 
 setup_file() {
   local report
-  report=$("$BATS_TEST_DIRNAME/../mdpreview" --check 2>&1) ||
-    skip "mdpreview --check failed: $(grep -E '^(error|  error)' <<<"$report" | head -3 | tr '\n' ' ')"
+  report=$("$BATS_TEST_DIRNAME/../nvcat" --check 2>&1) ||
+    skip "nvcat --check failed: $(grep -E '^(error|  error)' <<<"$report" | head -3 | tr '\n' ' ')"
   # Languages --check shows with regex syntax (no parser or highlights query on this machine).
   REGEX_LANGS=" $(sed -n 's/^  regex syntax *\([^(]*\).*/\1/p' <<<"$report" | tr -d ',') "
   export REGEX_LANGS
@@ -15,7 +15,7 @@ setup_file() {
 
 setup() {
   ROOT=$(cd "$BATS_TEST_DIRNAME/.." && pwd)
-  MDPREVIEW=$ROOT/mdpreview
+  NVCAT=$ROOT/nvcat
   FIXTURES=$BATS_TEST_DIRNAME/fixtures
 }
 
@@ -26,7 +26,7 @@ colors() {
 render_entry() {
   local filetype=$1 file
   file=$(find "$FIXTURES/$filetype" -type f ! -name Chart.yaml ! -name 'plain.*' | sort | head -1)
-  run "$MDPREVIEW" --columns 80 --all --filetype "$filetype" -- "$file" < /dev/null
+  run "$NVCAT" --columns 80 --all --filetype "$filetype" -- "$file" < /dev/null
   [ "$status" -eq 0 ] || { echo "$filetype: $output"; return 1; }
   checked=$((checked + 1))
   if [ "$(colors "$output")" -lt 3 ]; then
@@ -55,8 +55,8 @@ for e in filetypes.load(): print(e["filetype"], e.get("lang", e["filetype"]))' "
 }
 
 @test "regex-syntax filetypes highlight comments" {
-  "$MDPREVIEW" --check | grep -q '^  theme  *[^ -]' || skip "needs a configured theme with italic comments"
-  run "$MDPREVIEW" --columns 80 --all --filetype tmux -- "$FIXTURES/tmux/.tmux.conf"
+  "$NVCAT" --check | grep -q '^  theme  *[^ -]' || skip "needs a configured theme with italic comments"
+  run "$NVCAT" --columns 80 --all --filetype tmux -- "$FIXTURES/tmux/.tmux.conf"
   [ "$status" -eq 0 ]
   first=$(head -1 <<<"$output")
   [[ $first == *$'\e[0;3;'* ]]  # Comment is italic in the theme
@@ -64,45 +64,45 @@ for e in filetypes.load(): print(e["filetype"], e.get("lang", e["filetype"]))' "
 }
 
 @test "the table detects the filetype when --filetype is omitted" {
-  run "$MDPREVIEW" --columns 80 --all -- "$FIXTURES/kdl/config.kdl"
+  run "$NVCAT" --columns 80 --all -- "$FIXTURES/kdl/config.kdl"
   [ "$status" -eq 0 ]
   [ "$(colors "$output")" -ge 3 ]
 }
 
 @test "files outside the table use Neovim detection" {
-  run "$MDPREVIEW" --columns 80 --all -- "$FIXTURES/bat/script.py"
+  run "$NVCAT" --columns 80 --all -- "$FIXTURES/bat/script.py"
   [ "$status" -eq 0 ]
   [ "$(colors "$output")" -ge 3 ]
 }
 
 @test "stdin renders as Markdown" {
-  run bash -c "'$MDPREVIEW' --columns 40 - < '$FIXTURES/markdown/sample.md'"
+  run bash -c "'$NVCAT' --columns 40 - < '$FIXTURES/markdown/sample.md'"
   [ "$status" -eq 0 ]
   [[ $output == *'Title'* ]]
   [[ $output == *'item'* ]]
 }
 
 @test "Markdown fixture renders headings and code" {
-  run "$MDPREVIEW" --columns 60 --all -- "$FIXTURES/markdown/sample.md"
+  run "$NVCAT" --columns 60 --all -- "$FIXTURES/markdown/sample.md"
   [ "$status" -eq 0 ]
   [[ $output == *'Title'* ]]
   [[ $output == *'print'* ]]
 }
 
 @test "viewport rendering works for non-Markdown files" {
-  run "$MDPREVIEW" --columns 60 --lines 2 --filetype just -- "$FIXTURES/just/justfile"
+  run "$NVCAT" --columns 60 --lines 2 --filetype just -- "$FIXTURES/just/justfile"
   [ "$status" -eq 0 ]
   [ "${#lines[@]}" -eq 2 ]
 }
 
 @test "start line past the end fails cleanly" {
-  run "$MDPREVIEW" --columns 60 --lines 5 --start-line 999 --filetype kdl -- "$FIXTURES/kdl/config.kdl"
+  run "$NVCAT" --columns 60 --lines 5 --start-line 999 --filetype kdl -- "$FIXTURES/kdl/config.kdl"
   [ "$status" -eq 1 ]
   [[ $output == *'exceeds document length'* ]]
 }
 
-@test "dispatch renders through the real mdpreview" {
-  MDPREVIEW=$ROOT/mdpreview run "$ROOT/mdpreview-dispatch" "$FIXTURES/gleam/app.gleam"
+@test "dispatch renders through the real nvcat" {
+  NVCAT=$ROOT/nvcat run "$ROOT/nvcat-dispatch" "$FIXTURES/gleam/app.gleam"
   [ "$status" -eq 0 ]
   [ "$(colors "$output")" -ge 3 ]
 }
@@ -111,7 +111,7 @@ for e in filetypes.load(): print(e["filetype"], e.get("lang", e["filetype"]))' "
   table=$BATS_TEST_TMPDIR/table.md
   { echo '| a | b | c | d |'; echo '|---|---|---|---|'
     for i in $(seq 1 600); do echo "| \`f$i\` | \`.e$i\`, 1 pattern | \`p\` |  |"; done; } > "$table"
-  run "$MDPREVIEW" --paging=never --columns 120 --lines 20 --timeout 3 -- "$table"
+  run "$NVCAT" --paging=never --columns 120 --lines 20 --timeout 3 -- "$table"
   [ "$status" -eq 0 ]
   [ "${#lines[@]}" -eq 20 ]
 }
@@ -122,8 +122,8 @@ for e in filetypes.load(): print(e["filetype"], e.get("lang", e["filetype"]))' "
 import importlib.machinery, importlib.util, shutil, sys, tempfile
 root, path = sys.argv[1], sys.argv[2]
 sys.path.insert(0, root)
-loader = importlib.machinery.SourceFileLoader("mdpreview_module", root + "/mdpreview")
-spec = importlib.util.spec_from_loader("mdpreview_module", loader)
+loader = importlib.machinery.SourceFileLoader("nvcat_module", root + "/nvcat")
+spec = importlib.util.spec_from_loader("nvcat_module", loader)
 module = importlib.util.module_from_spec(spec)
 loader.exec_module(module)
 with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
@@ -141,8 +141,8 @@ PY
 
 @test "--syntax regex applies to filetypes whose ftplugin starts Tree-sitter (Lua)" {
   printf -- '-- comment\nlocal x = "s"\n' > "$BATS_TEST_TMPDIR/sample.lua"
-  treesitter=$("$MDPREVIEW" --paging=never --columns 40 "$BATS_TEST_TMPDIR/sample.lua")
-  run --separate-stderr "$MDPREVIEW" --paging=never --columns 40 --syntax regex --timings-json \
+  treesitter=$("$NVCAT" --paging=never --columns 40 "$BATS_TEST_TMPDIR/sample.lua")
+  run --separate-stderr "$NVCAT" --paging=never --columns 40 --syntax regex --timings-json \
     "$BATS_TEST_TMPDIR/sample.lua"
   [ "$status" -eq 0 ]
   [[ $stderr == *'"engine": "syntax"'* ]]

@@ -1,6 +1,6 @@
 # Performance
 
-Where a render's time goes, measured with `mdpreview --timings` (see the README) on 2026-10-31, NVIM
+Where a render's time goes, measured with `nvcat --timings` (see the README) on 2026-10-31, NVIM
 v0.13.0-dev, 8 CPUs at a 1-minute load of about 2. Each figure is a median of three runs; expect +-20% from
 the load on this desktop. Regenerate the per-filetype table with `benchmarks/filetypes`; the Markdown samples
 are tracked by `benchmarks/run` in [SYNTAX.md](../SYNTAX.md#markdown-rendering-benchmarks).
@@ -23,7 +23,7 @@ Findings, in order of what they cost:
    any document; the rest is render-markdown's render and Neovim's redraw, which grow with the grid. Redraw is
    the larger part on tall grids: 1.2 s of large.md's 2 s.
 2. **Each Markdown frame redraws three times.** render-markdown calls `on.render` three times per frame
-   (which events trigger each is not yet traced), and `notify_ready` schedules a full `redraw` for each; all three finish before mdpreview's `info()` request is answered. Non-Markdown filetypes redraw
+   (which events trigger each is not yet traced), and `notify_ready` schedules a full `redraw` for each; all three finish before nvcat's `info()` request is answered. Non-Markdown filetypes redraw
    once. `ready_callbacks` in `--timings` shows the count. Notifying once per token, after the explicit
    update, is the most promising optimization (TODO.md), but it changes the ready protocol and needs the
    tail/viewport tests to hold.
@@ -39,7 +39,7 @@ Findings, in order of what they cost:
    about 60% of the time, which is the case for a persistent worker (TODO.md).
 6. **Python's share is small.** Decoding redraw events and maintaining the grid is 7-80 ms, ANSI encoding up
    to 50 ms on 900 rows: under 10% of a complete render.
-7. **Dispatch overhead is below the noise.** `mdpreview-dispatch` minus `mdpreview --all` ranges from -41 to
+7. **Dispatch overhead is below the noise.** `nvcat-dispatch` minus `nvcat --all` ranges from -41 to
    +71 ms with no pattern; the detection itself is a bash `case`.
 8. **Memory is modest.** Neovim peaks at 18-28 MiB for small files and about 60-70 MiB for 350-900-line
    Markdown, Python at 18-33 MiB.

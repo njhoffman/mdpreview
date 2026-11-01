@@ -1,6 +1,6 @@
 # Source from a bats test: slow_input PATH writes about 2 MiB of Markdown prose. A 40-row viewport of it keeps
 # Neovim busy for seconds (Tree-sitter parses the whole input) without reaching the row or size limits, so a
-# test has time to signal mdpreview or Neovim mid-render.
+# test has time to signal nvcat or Neovim mid-render.
 slow_input() {
   python3 -c '
 import sys

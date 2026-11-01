@@ -1,4 +1,4 @@
-"""Filetype table shared by mdpreview and gen-dispatch; see filetypes.json."""
+"""Filetype table shared by nvcat and gen-dispatch; see filetypes.json."""
 
 from fnmatch import fnmatchcase
 import json
@@ -49,7 +49,7 @@ def absolute(path):
 
 
 def detect(path, entries=None):
-  """Return the first table entry matching path, mirroring the generated mdpreview-dispatch."""
+  """Return the first table entry matching path, mirroring the generated nvcat-dispatch."""
   path = absolute(path)
   folded = path.lower()
   for entry in load() if entries is None else entries:

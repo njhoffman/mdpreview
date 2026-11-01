@@ -4,7 +4,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `mdpreview` | CLI options, dependency paths, MessagePack RPC, screen decoding, ANSI output, process cleanup |
+| `nvcat` | CLI options, dependency paths, MessagePack RPC, screen decoding, ANSI output, process cleanup |
 | `profile.lua` | Isolated Neovim options, theme and Markdown setup, render-ready signaling |
 | `readonly.py` | Linux Landlock write restriction |
 | `queries/markdown/injections.scm` | C++ fence-label injection |
@@ -27,12 +27,12 @@ normal injection-name lookup.
 python3 - <<'PY'
 import ast
 from pathlib import Path
-for name in ("mdpreview", "readonly.py"):
+for name in ("nvcat", "readonly.py"):
     ast.parse(Path(name).read_text(), filename=name)
 PY
 luac -p profile.lua
-./mdpreview --columns 80 README.md > /tmp/mdpreview-readme.ansi
-./mdpreview --columns 120 --lines 40 README.md > /tmp/mdpreview-viewport.ansi
+./nvcat --columns 80 README.md > /tmp/nvcat-readme.ansi
+./nvcat --columns 120 --lines 40 README.md > /tmp/nvcat-viewport.ansi
 ```
 
 The bats suite (`make test`) covers what the initial experiments checked, with self-contained fixtures in
@@ -44,7 +44,7 @@ and a real fzf session (`tests/helpers/fzf_session.py`). The original harnesses 
 
 ## Profiling
 
-Profile before optimizing: `./mdpreview --timings FILE` splits one render into startup, theme, plugin setup,
+Profile before optimizing: `./nvcat --timings FILE` splits one render into startup, theme, plugin setup,
 parser loading, query compilation, parsing, render-markdown, redraw, Python's RPC handling, and ANSI encoding
 (see the README). Neovim records its phases with `vim.uv.hrtime()` in `profile.lua` (`lap()`), Python with
 `time.monotonic_ns()`; both are CLOCK_MONOTONIC, which is how Neovim's startup marks are placed on Python's
@@ -54,8 +54,8 @@ name with `": "` is a sub-phase of the part before it. `benchmarks/filetypes` an
 
 ## Mixed-file fzf routing
 
-Use the generated `mdpreview-dispatch` (see the README): it routes Markdown and the filetypes in
-`filetypes.json` to mdpreview and everything else, plus any mdpreview failure, to bat. Configure fzf's
+Use the generated `nvcat-dispatch` (see the README): it routes Markdown and the filetypes in
+`filetypes.json` to nvcat and everything else, plus any nvcat failure, to bat. Configure fzf's
 `resize:refresh-preview` binding to rerender at a new width; the preview command cannot configure the parent
 fzf process.
 
